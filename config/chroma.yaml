@@ -1,0 +1,10 @@
+collection_name: agent  # 表名/数据库名
+persist_directory: chroma_db  # 持久化存储路径 
+retriever_k: 3
+data_path: data
+md5_hex_store: md5.text
+allow_knowledge_file_type: ["txt", "pdf"]
+
+chunk_size: 200
+chunk_overlap: 20
+separators: ["\n\n", "\n", ".", "!", "?", "。", "！", "？", " ", ""]

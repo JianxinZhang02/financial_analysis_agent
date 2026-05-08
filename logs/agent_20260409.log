@@ -1,0 +1,51 @@
+2026-04-09 13:34:57,760 - agent - INFO - 信息日志
+2026-04-09 13:34:57,760 - agent - ERROR - 错误日志
+2026-04-09 13:34:57,761 - agent - WARNING - 警告日志
+2026-04-09 13:35:11,431 - agent - INFO - 信息日志
+2026-04-09 13:35:11,432 - agent - ERROR - 错误日志
+2026-04-09 13:35:11,432 - agent - WARNING - 警告日志
+2026-04-09 13:35:12,382 - agent - INFO - 信息日志
+2026-04-09 13:35:12,382 - agent - ERROR - 错误日志
+2026-04-09 13:35:12,382 - agent - WARNING - 警告日志
+2026-04-09 13:35:12,876 - agent - INFO - 信息日志
+2026-04-09 13:35:12,876 - agent - ERROR - 错误日志
+2026-04-09 13:35:12,877 - agent - WARNING - 警告日志
+2026-04-09 13:35:13,282 - agent - INFO - 信息日志
+2026-04-09 13:35:13,282 - agent - ERROR - 错误日志
+2026-04-09 13:35:13,282 - agent - WARNING - 警告日志
+2026-04-09 13:36:42,685 - agent - INFO - 信息日志
+2026-04-09 13:36:42,685 - agent - ERROR - 错误日志
+2026-04-09 13:36:42,685 - agent - WARNING - 警告日志
+2026-04-09 13:37:40,010 - agent - INFO - logger_handler.py:55 - 信息日志
+2026-04-09 13:37:40,011 - agent - ERROR - logger_handler.py:56 - 错误日志
+2026-04-09 13:37:40,011 - agent - WARNING - logger_handler.py:57 - 警告日志
+2026-04-09 16:09:09,203 - agent - INFO - test1.py:3 - 这是一个信息日志
+2026-04-09 16:09:09,203 - agent - ERROR - test1.py:4 - 这是一个错误日志
+2026-04-09 16:10:41,326 - agent - INFO - test1.py:3 - 这是一个信息日志: 123
+2026-04-09 16:10:41,326 - agent - ERROR - test1.py:4 - 这是一个错误日志
+2026-04-09 19:09:42,299 - agent - ERROR - prompt_loader.py:15 - [load_system_prompts]解析系统提示词出错，[Errno 2] No such file or directory: 'E:\\codes\\study_LLM\\大模型RAG与Agent智能体\\zjx-RAG+Agent\\prompts/main_prompt.txt'
+2026-04-09 21:42:29,854 - agent - INFO - vector_store.py:83 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫地机器人100问.pdf处理完成，已添加33条记录到向量库中
+2026-04-09 21:42:32,791 - agent - INFO - vector_store.py:83 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫地机器人100问2.txt处理完成，已添加41条记录到向量库中
+2026-04-09 21:42:36,202 - agent - INFO - vector_store.py:83 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫拖一体机器人100问.txt处理完成，已添加51条记录到向量库中
+2026-04-09 21:42:43,071 - agent - INFO - vector_store.py:83 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\故障排除.txt处理完成，已添加100条记录到向量库中
+2026-04-09 21:43:10,096 - agent - INFO - vector_store.py:83 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\维护保养.txt处理完成，已添加53条记录到向量库中
+2026-04-09 21:43:13,429 - agent - INFO - vector_store.py:83 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\选购指南.txt处理完成，已添加48条记录到向量库中
+2026-04-09 21:43:33,248 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫地机器人100问.pdf已经存在库中，跳过处理
+2026-04-09 21:43:33,249 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫地机器人100问2.txt已经存在库中，跳过处理
+2026-04-09 21:43:33,249 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫拖一体机器人100问.txt已经存在库中，跳过处理
+2026-04-09 21:43:33,250 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\故障排除.txt已经存在库中，跳过处理
+2026-04-09 21:43:33,250 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\维护保养.txt已经存在库中，跳过处理
+2026-04-09 21:43:33,251 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\选购指南.txt已经存在库中，跳过处理
+2026-04-09 21:45:26,459 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫地机器人100问.pdf已经存在库中，跳过处理
+2026-04-09 21:45:26,460 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫地机器人100问2.txt已经存在库中，跳过处理
+2026-04-09 21:45:26,460 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫拖一体机器人100问.txt已经存在库中，跳过处理
+2026-04-09 21:45:26,461 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\故障排除.txt已经存在库中，跳过处理
+2026-04-09 21:45:26,461 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\维护保养.txt已经存在库中，跳过处理
+2026-04-09 21:45:26,462 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\选购指南.txt已经存在库中，跳过处理
+2026-04-09 21:49:50,173 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫地机器人100问.pdf已经存在库中，跳过处理
+2026-04-09 21:49:50,173 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫地机器人100问2.txt已经存在库中，跳过处理
+2026-04-09 21:49:50,173 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\扫拖一体机器人100问.txt已经存在库中，跳过处理
+2026-04-09 21:49:50,175 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\故障排除.txt已经存在库中，跳过处理
+2026-04-09 21:49:50,175 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\维护保养.txt已经存在库中，跳过处理
+2026-04-09 21:49:50,175 - agent - INFO - vector_store.py:68 - 文件E:\codes\study_LLM\大模型RAG与Agent智能体\zjx-RAG+Agent\data\选购指南.txt已经存在库中，跳过处理
+2026-04-09 22:15:38,125 - agent - ERROR - prompt_loader.py:29 - [load_rag_summary_prompts]解析RAG摘要提示词出错，[Errno 2] No such file or directory: 'E:\\codes\\study_LLM\\大模型RAG与Agent智能体\\zjx-RAG+Agent\\prompts/rag_summary_prompt.txt'
