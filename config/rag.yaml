@@ -1,2 +1,14 @@
-chat_model_name : qwen3-max
-embedding_model_name : text-embedding-v4
+data_path: data/raw
+processed_path: data/processed/chunks.jsonl
+index_path: data/indexes
+retriever_k: 8
+rerank_top_n: 6
+chunk_max_chars: 1200
+chunk_overlap_chars: 120
+enable_hyde: true
+enable_query_rewrite: true
+enable_sub_queries: true
+enable_graph_rag: true
+dense_weight: 0.35
+bm25_weight: 0.35
+rerank_weight: 0.30

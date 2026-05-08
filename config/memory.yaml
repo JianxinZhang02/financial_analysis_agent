@@ -1,0 +1,4 @@
+short_term_window: 8
+heartbeat_message_threshold: 12
+heartbeat_char_threshold: 16000
+profile_store_path: data/processed/user_profiles.json

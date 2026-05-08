@@ -1,46 +1,46 @@
+from __future__ import annotations
+
 from utils.config_handler import prompts_cof
-from utils.path_tool import get_abs_path
 from utils.logger_handler import logger
+from utils.path_tool import get_abs_path
 
-def load_system_prompts():
-    try:
-        system_prompt_path = get_abs_path(prompts_cof["main_prompt_path"])
-    except KeyError as e:
-        logger.error(f"[load_system_prompts]在yaml配置项中没有main_prompt_path配置项")
-        raise e
 
+def _load_prompt(config_key: str) -> str:
     try:
-        return open(system_prompt_path, "r", encoding="utf-8").read()
-    except Exception as e:
-        logger.error(f"[load_system_prompts]解析系统提示词出错，{str(e)}")
-        raise e
-    
+        prompt_path = get_abs_path(prompts_cof[config_key])
+    except KeyError as exc:
+        logger.error(f"Missing prompt config key: {config_key}")
+        raise exc
+    try:
+        return open(prompt_path, "r", encoding="utf-8").read()
+    except Exception as exc:
+        logger.error(f"Failed to load prompt {prompt_path}: {exc}")
+        raise exc
 
-def load_rag_summary_prompts():
-    try:
-        rag_summary_prompt_path = get_abs_path(prompts_cof["rag_summary_prompt_path"])
-    except KeyError as e:
-        logger.error(f"[load_rag_summary_prompts]在yaml配置项中没有rag_summary_prompt_path配置项")
-        raise e
 
-    try:
-        return open(rag_summary_prompt_path, "r", encoding="utf-8").read()
-    except Exception as e:
-        logger.error(f"[load_rag_summary_prompts]解析RAG摘要提示词出错，{str(e)}")
-        raise e
+def load_system_prompts() -> str:
+    return _load_prompt("main_prompt_path")
 
-def load_report_prompts():  # 报告提示词加载
-    try:
-        report_prompt_path = get_abs_path(prompts_cof["report_prompt_path"])
-    except KeyError as e:
-        logger.error(f"[load_report_prompts]在yaml配置项中没有report_prompt_path配置项")
-        raise e
 
-    try:
-        return open(report_prompt_path, "r", encoding="utf-8").read()
-    except Exception as e:
-        logger.error(f"[load_report_prompts]解析报告提示词出错，{str(e)}")
-        raise e
-    
-if __name__ == '__main__':
-    print(load_system_prompts())
+def load_rag_summary_prompts() -> str:
+    return _load_prompt("rag_summary_prompt_path")
+
+
+def load_report_prompts() -> str:
+    return _load_prompt("report_prompt_path")
+
+
+def load_query_rewrite_prompt() -> str:
+    return _load_prompt("query_rewrite_prompt_path")
+
+
+def load_hyde_prompt() -> str:
+    return _load_prompt("hyde_prompt_path")
+
+
+def load_critic_prompt() -> str:
+    return _load_prompt("critic_prompt_path")
+
+
+def load_citation_prompt() -> str:
+    return _load_prompt("citation_prompt_path")

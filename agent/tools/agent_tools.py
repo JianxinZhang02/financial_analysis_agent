@@ -1,95 +1,53 @@
-import random
-import os
+from __future__ import annotations
 
-from langchain_core.tools import tool
+import math
+from typing import Callable
+
 from rag.rag_service import RagSummaryService
-from utils.config_handler import agent_cof
-from utils.path_tool import get_abs_path
-from utils.logger_handler import logger
+
+
+def _tool(description: str = "") -> Callable:
+    try:
+        from langchain_core.tools import tool
+
+        return tool(description=description)
+    except Exception:
+        def decorator(func):
+            func.description = description
+            return func
+
+        return decorator
+
 
 rag = RagSummaryService()
 
-userid = ["1001", "1002", "1003", "1004", "1005", "1006", "1007", "1008", "1009", "1010"]
-months = ["2025-1", "2025-2", "2025-3", "2025-4", "2025-5", "2025-6", "2025-7", "2025-8", "2025-9", "2025-10", "2025-11", "2025-12"]
-external_data = {}
 
-@tool(description = "根据用户的查询，使用RAG技术从知识库中检索相关文档，并生成摘要返回给用户")
+@_tool(description="从本地金融研报、财报、纪要和表格中检索证据，并返回带来源页码的摘要。")
 def rag_summarize(query: str) -> str:
-    # Implementation for the RAG summarize tool
     return rag.rag_summarize(query)
 
 
-@tool(description = "根据用户提供的城市名称，返回该城市的当前天气情况") 
-def get_weather(city: str) -> str:
-    # Implementation for the weather tool
-    return f"The current weather in {city} is sunny with a high of 25°C and a low of 15°C."
-
-@tool(description="返回用户的当前位置")
-def get_location() ->str:
-    return random.choice(["北京", "上海", "广州", "深圳", "杭州"])
+@_tool(description="计算同比增长率，输入新值和旧值，返回百分比。")
+def calculate_growth_rate(new_value: float, old_value: float) -> str:
+    if old_value == 0:
+        return "旧值为0，无法计算增长率。"
+    return f"{(new_value - old_value) / old_value * 100:.2f}%"
 
 
-@tool(description="获取用户ID，以字符串形式返回")
-def get_user_id() -> str:
-    return random.choice(userid)
-
-@tool(description="获取当前月份，以字符串形式返回")
-def get_current_month() -> str:
-
-    return random.choice(months)
-
-def generate_external_data() -> str:
-    """
-    组成为一个dict，
-    {
-        'userid': {
-            'month1': {'特征': '值1', '效率': '值2', ...}
-            'month2': {'特征': '值1', '效率': '值2', ...}
-            'month3': {'特征': '值1', '效率': '值2', ...}
-        },
-        'userid': {
-            'month1': {'特征': '值1', '效率': '值2', ...}
-            'month2': {'特征': '值1', '效率': '值2', ...}
-            'month3': {'特征': '值1', '效率': '值2', ...}
-        },
-        ...
-    }
-    """
-
-    if not external_data:
-        external_path = get_abs_path(agent_cof['external_data_path'])
-        if not os.path.exists(external_path):
-            raise FileNotFoundError(f"外部数据文件 {external_path} 不存在，请检查配置项external_data_path")
-        with open(external_path, 'r', encoding='utf-8') as f:
-            for line in f.readlines()[1:]:  # 跳过第一行表头
-                line :list[str] = line.strip().split(',')
-
-                userid = line[0].strip().replace('"', '')  # 用户ID
-                feature = line[1].strip().replace('"', '')  # 特征
-                efficiency = line[2].strip().replace('"', '')  # 效率
-                consumables = line[3].strip().replace('"', '')  # 耗材
-                comparison = line[4].strip().replace('"', '')  # 对比
-                month = line[5].strip().replace('"', '')  # 月份
-
-                if userid not in external_data: # 如果用户ID不在external_data中，先创建一个空的字典
-                    external_data[userid] = {}
-
-                external_data[userid][month] = {
-                    "特征": feature,
-                    "效率": efficiency,
-                    "耗材": consumables,
-                    "对比": comparison,
-                }
-
-@tool(description="生成特定用户的外部报告")
-def fetch_external_data(userid: str, month: str) -> str:
-    generate_external_data()  # 调用一哈
-    try:
-        return external_data[userid][month]
-    except KeyError:
-        logger.warning(f"未找到用户ID {userid} 在月份 {month} 的数据")
-        return ''
+@_tool(description="计算复合年增长率CAGR。")
+def calculate_cagr(begin_value: float, end_value: float, years: float) -> str:
+    if begin_value <= 0 or years <= 0:
+        return "起始值和年数必须大于0。"
+    return f"{(math.pow(end_value / begin_value, 1 / years) - 1) * 100:.2f}%"
 
 
-# if __name__ == "__main__":
-#     print(fetch_external_data("1021", "2025-01"))
+@_tool(description="根据市值和净利润计算市盈率。")
+def calculate_pe_ratio(market_cap: float, net_profit: float) -> str:
+    if net_profit == 0:
+        return "净利润为0，无法计算市盈率。"
+    return f"{market_cap / net_profit:.2f}x"
+
+
+@_tool(description="实时金融新闻搜索占位工具。需要配置外部API后才会返回真实新闻。")
+def search_financial_news(query: str) -> str:
+    return f"当前未配置实时新闻API，无法联网检索：{query}"
