@@ -1,6 +1,8 @@
-data_path: data/raw
-processed_path: data/processed/chunks.jsonl
+data_path: data/raw/financial_reports
+processed_path: data/processed/financial_reports_chunks.jsonl
 index_path: data/indexes
+require_document_registry: true
+auto_register_local_files: true
 retriever_k: 8
 rerank_top_n: 6
 chunk_max_chars: 1200

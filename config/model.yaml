@@ -1,7 +1,9 @@
 chat_provider: dashscope_compatible
 chat_model_name: qwen3.6-plus
 chat_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-embedding_provider: dashscope
+embedding_provider: dashscope_compatible
 embedding_model_name: text-embedding-v4
+embedding_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+embedding_chunk_size: 8
 rerank_provider: local
 rerank_model_name: local-lexical-reranker

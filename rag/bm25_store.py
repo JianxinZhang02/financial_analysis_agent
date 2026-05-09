@@ -5,6 +5,7 @@ import re
 from collections import Counter, defaultdict
 
 from ingestion.schema import Chunk
+from rag.query_filters import matches_metadata_filter
 
 
 def tokenize(text: str) -> list[str]:
@@ -25,13 +26,15 @@ class BM25Store:
             for token in set(tokens):
                 self.doc_freq[token] += 1
 
-    def search(self, query: str, top_k: int = 8) -> list[tuple[Chunk, float]]:
+    def search(self, query: str, top_k: int = 8, metadata_filter: dict[str, str] | None = None) -> list[tuple[Chunk, float]]:
         if not self.chunks:
             return []
         query_terms = tokenize(query)
         scores: list[tuple[int, float]] = []
         total_docs = len(self.chunks)
         for idx, freqs in enumerate(self.term_freqs):
+            if not matches_metadata_filter(self.chunks[idx].metadata, metadata_filter):
+                continue
             score = 0.0
             for term in query_terms:
                 freq = freqs.get(term, 0)

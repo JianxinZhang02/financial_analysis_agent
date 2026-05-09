@@ -79,7 +79,6 @@ class ChatModelFactory(BaseModelFactory):
                     or "https://dashscope.aliyuncs.com/compatible-mode/v1"
                 )
                 api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("OPENAI_API_KEY")
-                print(api_key)
                 return ChatOpenAI(model=model_name, base_url=base_url, api_key=api_key)
             except Exception:
                 return SimpleChatModel(model=model_name)
@@ -107,6 +106,31 @@ class EmbeddingsFactory(BaseModelFactory):
     def generator(self) -> Any:
         provider = model_cof.get("embedding_provider", rag_cof.get("embedding_provider", "dashscope"))
         model_name = model_cof.get("embedding_model_name", rag_cof.get("embedding_model_name", "text-embedding-v4"))
+        chunk_size = min(int(model_cof.get("embedding_chunk_size", 8)), 10)
+
+        if provider in {"dashscope_compatible", "openai_compatible"}:
+            try:
+                from langchain_openai import OpenAIEmbeddings
+
+                base_url = (
+                    model_cof.get("embedding_base_url")
+                    or model_cof.get("chat_base_url")
+                    or os.getenv("DASHSCOPE_BASE_URL")
+                    or os.getenv("DASH_SCOPE_BASE_URL")
+                    or os.getenv("ZZZ_BASE_URL")
+                    or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                )
+                api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("OPENAI_API_KEY")
+                return OpenAIEmbeddings(
+                    model=model_name,
+                    base_url=base_url,
+                    api_key=api_key,
+                    tiktoken_enabled=False,
+                    check_embedding_ctx_length=False,
+                    chunk_size=chunk_size,
+                )
+            except Exception:
+                return SimpleEmbeddings()
 
         if provider == "dashscope":
             try:

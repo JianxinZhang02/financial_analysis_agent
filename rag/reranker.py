@@ -1,6 +1,14 @@
 from __future__ import annotations
 
 from rag.bm25_store import tokenize
+from utils.config_handler import rag_cof
+
+
+def _score_weight(name: str, default: float) -> float:
+    try:
+        return float(rag_cof.get(name, default))
+    except (TypeError, ValueError):
+        return default
 
 
 class LocalReranker:
@@ -17,13 +25,17 @@ class LocalReranker:
         return min(1.0, lexical + authority + freshness)
 
     def rerank(self, query: str, candidates: list[dict], top_n: int = 6) -> list[dict]:
+        dense_weight = _score_weight("dense_weight", 0.35)
+        bm25_weight = _score_weight("bm25_weight", 0.35)
+        rerank_weight = _score_weight("rerank_weight", 0.30)
+
         for candidate in candidates:
             chunk = candidate["chunk"]
             candidate["rerank_score"] = self.score(query, chunk.text, chunk.metadata | {"doc_type": chunk.doc_type})
             candidate["final_score"] = (
-                0.35 * candidate.get("dense_score", 0.0)
-                + 0.35 * candidate.get("bm25_score", 0.0)
-                + 0.30 * candidate.get("rerank_score", 0.0)
+                dense_weight * candidate.get("dense_score", 0.0)
+                + bm25_weight * candidate.get("bm25_score", 0.0)
+                + rerank_weight * candidate.get("rerank_score", 0.0)
             )
         candidates.sort(key=lambda item: item["final_score"], reverse=True)
         return candidates[:top_n]
