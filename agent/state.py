@@ -20,7 +20,9 @@ class FinancialAgentState(TypedDict, total=False):
     citation_errors: list[str]
     final_answer: str
     needs_web_search: bool
+    needs_more_evidence: bool
     reflection_round: int
+    reflection_history: list[dict[str, Any]]
     memory_snapshot: dict[str, Any]
 
 

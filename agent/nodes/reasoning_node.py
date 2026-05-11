@@ -4,6 +4,7 @@ from agent.llm_utils import compact_json, invoke_llm
 from agent.state import FinancialAgentState
 from rag.citation import EvidenceCard, citation_text
 from utils.config_handler import compliance_cof
+from utils.logger_handler import log_stage, safe_preview
 
 
 def _cards(state: FinancialAgentState) -> list[EvidenceCard]:
@@ -104,10 +105,27 @@ GraphRAG 关系：
 
 
 def reasoning_node(state: FinancialAgentState) -> dict:
-    if not state.get("evidence_cards"):
-        return _fallback_reasoning(state)
-    try:
-        draft = _llm_reasoning(state)
-        return {"draft_answer": draft, "reasoning_llm_used": True}
-    except Exception as exc:
-        return _fallback_reasoning(state, error=str(exc))
+    evidence_count = len(state.get("evidence_cards", []))
+    with log_stage(
+        "reasoning",
+        evidence_cards=evidence_count,
+        graph_relations=len(state.get("graph_relations", [])),
+        calculations=len(state.get("calculations", [])),
+    ) as stage:
+        if not state.get("evidence_cards"):
+            result = _fallback_reasoning(state)
+            stage.add_done_fields(llm_used=False, fallback=True, answer_chars=len(result.get("draft_answer", "")))
+            return result
+        try:
+            draft = _llm_reasoning(state)
+            stage.add_done_fields(llm_used=True, fallback=False, answer_chars=len(draft))
+            return {"draft_answer": draft, "reasoning_llm_used": True}
+        except Exception as exc:
+            result = _fallback_reasoning(state, error=str(exc))
+            stage.add_done_fields(
+                llm_used=False,
+                fallback=True,
+                answer_chars=len(result.get("draft_answer", "")),
+                llm_error=safe_preview(exc, 160),
+            )
+            return result

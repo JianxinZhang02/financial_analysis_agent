@@ -10,7 +10,7 @@ from ingestion.schema import Chunk
 from model.factory import SimpleEmbeddings, embed_model
 from rag.query_filters import matches_metadata_filter, to_chroma_filter
 from utils.config_handler import chroma_cof, rag_cof
-from utils.logger_handler import logger
+from utils.logger_handler import logger, log_stage, log_stage_done, log_stage_start, safe_preview
 from utils.path_tool import get_abs_path
 from utils.progress import progress_bar
 
@@ -159,7 +159,14 @@ class VectorStoreService:
         Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
         self.using_chroma = True
         self.fallback_error: str | None = None
-        self.vector_store = self._init_chroma()
+        with log_stage(
+            "vector_store.init",
+            collection=self.collection_name,
+            persist_directory=safe_preview(self.persist_directory),
+            chunks=len(self.chunks),
+        ) as stage:
+            self.vector_store = self._init_chroma()
+            stage.add_done_fields(using_chroma=self.using_chroma, fallback_error=self.fallback_error)
 
     def _init_chroma(self):
         try:
@@ -203,16 +210,27 @@ class VectorStoreService:
     ) -> int:
         self.chunks = chunks or read_chunks()
         batch_size = min(max(int(batch_size), 1), 10)
+        started_at = log_stage_start(
+            "build_chroma",
+            chunks=len(self.chunks),
+            force=force,
+            batch_size=batch_size,
+            collection=self.collection_name,
+        )
         if force:
             self.clear_collection()
         elif self.collection_count() > 0:
-            return self.collection_count()
+            count = self.collection_count()
+            log_stage_done("build_chroma", started_at, skipped=True, existing_count=count)
+            return count
 
         if not self.chunks:
+            log_stage_done("build_chroma", started_at, count=0)
             return 0
 
         if not self.using_chroma:
             self.vector_store = InMemoryVectorStore(self.chunks)
+            log_stage_done("build_chroma", started_at, using_chroma=False, count=len(self.chunks))
             return len(self.chunks)
 
         documents = [chunk_to_document(chunk) for chunk in self.chunks]
@@ -231,6 +249,7 @@ class VectorStoreService:
         if hasattr(self.vector_store, "persist"):
             self.vector_store.persist()
         logger.info(f"Chroma index built: collection={self.collection_name}, count={len(documents)}")
+        log_stage_done("build_chroma", started_at, using_chroma=True, count=len(documents))
         return len(documents)
 
     def sync_from_chunks(
@@ -241,12 +260,20 @@ class VectorStoreService:
     ) -> int:
         self.chunks = chunks or read_chunks()
         batch_size = min(max(int(batch_size), 1), 10)
+        started_at = log_stage_start(
+            "sync_chroma",
+            chunks=len(self.chunks),
+            batch_size=batch_size,
+            collection=self.collection_name,
+        )
         if not self.chunks:
             self.clear_collection()
+            log_stage_done("sync_chroma", started_at, count=0, cleared=True)
             return 0
 
         if not self.using_chroma:
             self.vector_store = InMemoryVectorStore(self.chunks)
+            log_stage_done("sync_chroma", started_at, using_chroma=False, count=len(self.chunks))
             return len(self.chunks)
 
         target_by_id = {chunk.chunk_id: chunk for chunk in self.chunks}
@@ -298,6 +325,16 @@ class VectorStoreService:
             f"added={len(missing_ids)}, updated={len(changed_ids)}, "
             f"deleted={len(stale_ids)}, unchanged={len(target_ids & existing_ids) - len(changed_ids)}"
         )
+        log_stage_done(
+            "sync_chroma",
+            started_at,
+            using_chroma=True,
+            total=len(target_by_id),
+            added=len(missing_ids),
+            updated=len(changed_ids),
+            deleted=len(stale_ids),
+            unchanged=len(target_ids & existing_ids) - len(changed_ids),
+        )
         return len(target_by_id)
 
     def ensure_index(self) -> None:
@@ -319,20 +356,24 @@ class VectorStoreService:
         top_k: int = 8,
         metadata_filter: dict[str, str] | None = None,
     ) -> list[tuple[Chunk, float]]:
-        self.ensure_index()
-        if not self.using_chroma:
-            return self.vector_store.search(query, top_k, metadata_filter=metadata_filter)
+        with log_stage("vector_store.search", query=safe_preview(query), top_k=top_k) as stage:
+            self.ensure_index()
+            if not self.using_chroma:
+                results = self.vector_store.search(query, top_k, metadata_filter=metadata_filter)
+                stage.add_done_fields(using_chroma=False, hits=len(results), metadata_filter=metadata_filter or None)
+                return results
 
-        docs_and_scores = self.vector_store.similarity_search_with_score(
-            query,
-            k=top_k,
-            filter=to_chroma_filter(metadata_filter),
-        )
-        results: list[tuple[Chunk, float]] = []
-        for document, distance in docs_and_scores:
-            score = 1.0 / (1.0 + float(distance))
-            results.append((document_to_chunk(document), score))
-        return results
+            docs_and_scores = self.vector_store.similarity_search_with_score(
+                query,
+                k=top_k,
+                filter=to_chroma_filter(metadata_filter),
+            )
+            results: list[tuple[Chunk, float]] = []
+            for document, distance in docs_and_scores:
+                score = 1.0 / (1.0 + float(distance))
+                results.append((document_to_chunk(document), score))
+            stage.add_done_fields(using_chroma=True, hits=len(results), metadata_filter=metadata_filter or None)
+            return results
 
     def load_doucments(self) -> None:
         rebuild_index(build_vector=False)

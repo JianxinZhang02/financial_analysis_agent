@@ -21,22 +21,13 @@ from ingestion.parsers.financial_pdf_parser import clean_financial_text
 from ingestion.schema import Chunk, SourceDocument
 from utils.chinese_text import normalize_zh_for_retrieval
 from utils.config_handler import rag_cof
-from utils.logger_handler import logger
+from utils.helpers import as_bool
+from utils.logger_handler import logger, log_stage_done, log_stage_error, log_stage_start, safe_preview
 from utils.progress import progress_bar, set_progress_detail
 from utils.path_tool import get_abs_path
 
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".html", ".htm", ".pdf", ".csv", ".png", ".jpg", ".jpeg"}
-
-
-def _as_bool(value, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
-    return bool(value)
 
 
 def _scan_supported_files(root: Path) -> list[str]:
@@ -53,9 +44,10 @@ def discover_files(data_path: str | None = None) -> list[str]:
     active_data_path = data_path or rag_cof["data_path"]
     root = Path(get_abs_path(active_data_path))
     if not root.exists():
+        logger.warning(f"数据目录不存在：{root}")
         return []
-    if _as_bool(rag_cof.get("require_document_registry"), default=True):
-        if _as_bool(rag_cof.get("auto_register_local_files"), default=False):
+    if as_bool(rag_cof.get("require_document_registry"), default=True):
+        if as_bool(rag_cof.get("auto_register_local_files"), default=False):
             from ingestion.registry_sync import sync_registry_from_data_path
 
             sync_registry_from_data_path(active_data_path, SUPPORTED_SUFFIXES)
@@ -64,8 +56,11 @@ def discover_files(data_path: str | None = None) -> list[str]:
         unregistered_count = sum(1 for file in all_files if not is_registered_document(file))
         if unregistered_count:
             logger.info(f"Skipped {unregistered_count} unregistered file(s). Add them to document_registry.csv to ingest.")
+        logger.info(f"发现待处理文件：registered={len(files)}, total_supported={len(all_files)}, data_path={active_data_path}")
         return files
-    return _scan_supported_files(root)
+    files = _scan_supported_files(root)
+    logger.info(f"发现待处理文件：files={len(files)}, data_path={active_data_path}")
+    return files
 
 
 def load_documents(path: str) -> list[SourceDocument]:
@@ -144,56 +139,99 @@ def build_chunks(data_path: str | None = None, use_cache: bool = True, show_prog
     chunks: list[Chunk] = []
     cache_hits = 0
     cache_misses = 0
+    started_at = log_stage_start(
+        "build_chunks",
+        files=len(files),
+        use_cache=use_cache,
+        data_path=safe_preview(data_path or rag_cof["data_path"]),
+    )
 
     file_progress = progress_bar(files, desc="Build chunks", unit="file", total=len(files), enabled=show_progress)
-    for file in file_progress:
-        display_name = _short_path(file, data_root)
-        set_progress_detail(file_progress, f"checking {display_name}")
-        source_hash = file_md5(file)
-        metadata_hash = registry_row_fingerprint(file)
-        cached_chunks = cache.get(file, source_hash, metadata_hash) if cache else None
-        if cached_chunks is not None:
-            cache_hits += 1
-            chunks.extend(cached_chunks)
-            set_progress_detail(file_progress, f"cache hit {display_name} ({len(cached_chunks)} chunks)")
-            continue
+    try:
+        for file in file_progress:
+            display_name = _short_path(file, data_root)
+            file_started_at = log_stage_start("build_chunks.file", file=display_name)
+            try:
+                set_progress_detail(file_progress, f"checking {display_name}")
+                source_hash = file_md5(file)
+                metadata_hash = registry_row_fingerprint(file)
+                cached_chunks = cache.get(file, source_hash, metadata_hash) if cache else None
+                if cached_chunks is not None:
+                    cache_hits += 1
+                    chunks.extend(cached_chunks)
+                    set_progress_detail(file_progress, f"cache hit {display_name} ({len(cached_chunks)} chunks)")
+                    log_stage_done(
+                        "build_chunks.file",
+                        file_started_at,
+                        file=display_name,
+                        cache_hit=True,
+                        chunks=len(cached_chunks),
+                    )
+                    continue
 
-        cache_misses += 1
-        set_progress_detail(file_progress, f"parsing {display_name}")
-        file_chunks = chunk_documents(load_documents(file))
-        for chunk in file_chunks:
-            chunk.metadata["source_file_hash"] = source_hash
-            if metadata_hash:
-                chunk.metadata["registry_metadata_hash"] = metadata_hash
-            chunk.metadata["chunk_cache_signature"] = _chunk_cache_signature()
+                cache_misses += 1
+                set_progress_detail(file_progress, f"parsing {display_name}")
+                file_chunks = chunk_documents(load_documents(file))
+                for chunk in file_chunks:
+                    chunk.metadata["source_file_hash"] = source_hash
+                    if metadata_hash:
+                        chunk.metadata["registry_metadata_hash"] = metadata_hash
+                    chunk.metadata["chunk_cache_signature"] = _chunk_cache_signature()
+                if cache:
+                    cache.set(file, source_hash, metadata_hash, file_chunks)
+                chunks.extend(file_chunks)
+                set_progress_detail(file_progress, f"processed {display_name} ({len(file_chunks)} chunks)")
+                log_stage_done(
+                    "build_chunks.file",
+                    file_started_at,
+                    file=display_name,
+                    cache_hit=False,
+                    chunks=len(file_chunks),
+                )
+            except Exception as exc:
+                log_stage_error("build_chunks.file", file_started_at, error=exc, file=display_name)
+                raise
+
         if cache:
-            cache.set(file, source_hash, metadata_hash, file_chunks)
-        chunks.extend(file_chunks)
-        set_progress_detail(file_progress, f"processed {display_name} ({len(file_chunks)} chunks)")
-
-    if cache:
-        cache.prune(files)
-        cache.save()
-        logger.info(
-            f"Chunk cache finished: files={len(files)}, hits={cache_hits}, misses={cache_misses}, chunks={len(chunks)}"
+            cache.prune(files)
+            cache.save()
+            logger.info(
+                f"Chunk cache finished: files={len(files)}, hits={cache_hits}, misses={cache_misses}, chunks={len(chunks)}"
+            )
+        log_stage_done(
+            "build_chunks",
+            started_at,
+            files=len(files),
+            cache_hits=cache_hits,
+            cache_misses=cache_misses,
+            chunks=len(chunks),
         )
-    return chunks
+        return chunks
+    except Exception as exc:
+        log_stage_error("build_chunks", started_at, error=exc, files=len(files), chunks=len(chunks))
+        raise
 
 
 def write_chunks(chunks: list[Chunk], output_path: str | None = None, show_progress: bool = True) -> str:
     target = Path(get_abs_path(output_path or rag_cof["processed_path"]))
     target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("w", encoding="utf-8") as f:
-        chunk_progress = progress_bar(
-            chunks,
-            desc="Write chunks",
-            unit="chunk",
-            total=len(chunks),
-            enabled=show_progress and len(chunks) >= 200,
-        )
-        for chunk in chunk_progress:
-            f.write(json.dumps(chunk.to_dict(), ensure_ascii=False) + "\n")
-    return str(target)
+    started_at = log_stage_start("write_chunks", chunks=len(chunks), output_path=safe_preview(str(target)))
+    try:
+        with target.open("w", encoding="utf-8") as f:
+            chunk_progress = progress_bar(
+                chunks,
+                desc="Write chunks",
+                unit="chunk",
+                total=len(chunks),
+                enabled=show_progress and len(chunks) >= 200,
+            )
+            for chunk in chunk_progress:
+                f.write(json.dumps(chunk.to_dict(), ensure_ascii=False) + "\n")
+        log_stage_done("write_chunks", started_at, chunks=len(chunks), output_path=safe_preview(str(target)))
+        return str(target)
+    except Exception as exc:
+        log_stage_error("write_chunks", started_at, error=exc, output_path=safe_preview(str(target)))
+        raise
 
 
 def read_chunks(path: str | None = None) -> list[Chunk]:
@@ -216,17 +254,28 @@ def rebuild_index(
     build_vector: bool = True,
     force_vector: bool = False,
 ) -> str:
-    chunks = build_chunks(data_path, show_progress=True)
-    written_path = write_chunks(chunks, output_path, show_progress=True)
-    if build_vector:
-        from rag.vector_store import VectorStoreService
+    started_at = log_stage_start(
+        "rebuild_index",
+        data_path=safe_preview(data_path or rag_cof["data_path"]),
+        build_vector=build_vector,
+        force_vector=force_vector,
+    )
+    try:
+        chunks = build_chunks(data_path, show_progress=True)
+        written_path = write_chunks(chunks, output_path, show_progress=True)
+        if build_vector:
+            from rag.vector_store import VectorStoreService
 
-        service = VectorStoreService(chunks)
-        if force_vector:
-            service.build_from_chunks(chunks, force=True)
-        else:
-            service.sync_from_chunks(chunks)
-    return written_path
+            service = VectorStoreService(chunks)
+            if force_vector:
+                service.build_from_chunks(chunks, force=True)
+            else:
+                service.sync_from_chunks(chunks)
+        log_stage_done("rebuild_index", started_at, chunks=len(chunks), output_path=safe_preview(written_path))
+        return written_path
+    except Exception as exc:
+        log_stage_error("rebuild_index", started_at, error=exc)
+        raise
 
 
 if __name__ == "__main__":

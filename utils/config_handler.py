@@ -29,6 +29,8 @@ def load_rag_config(config_path: str = get_abs_path("config/rag.yaml"), encoding
         "chunk_max_chars": 1200,
         "chunk_overlap_chars": 120,
         "enable_hyde": True,
+        "enable_query_rewrite": True,
+        "enable_sub_queries": True,
         "enable_graph_rag": True,
     }
     return _load_yaml(config_path, default, encoding)

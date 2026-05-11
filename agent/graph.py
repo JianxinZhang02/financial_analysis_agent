@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 
 from agent.nodes.calculator_node import calculator_node
 from agent.nodes.citation_guard_node import citation_guard_node
@@ -16,7 +17,9 @@ from agent.state import FinancialAgentState
 from memory.heartbeat import MemoryHeartbeat
 from memory.short_term import ShortTermMemory
 from memory.user_profile import UserProfileService
-from utils.config_handler import agent_cof, graph_cof, memory_cof
+from utils.config_handler import agent_cof, graph_cof, memory_cof, rag_cof
+from utils.helpers import as_bool
+from utils.logger_handler import log_stage, safe_preview
 
 
 class FinancialGraphAgent:
@@ -33,28 +36,100 @@ class FinancialGraphAgent:
         try:
             from langgraph.graph import END, START, StateGraph
 
+            enable_graph_rag = as_bool(rag_cof.get("enable_graph_rag"), default=True)
+            enable_web_fallback = as_bool(graph_cof.get("enable_web_fallback"), default=False)
+            enable_critic = as_bool(graph_cof.get("enable_critic"), default=True)
+            enable_citation_guard = as_bool(graph_cof.get("enable_citation_guard"), default=True)
+            max_reflection_rounds = int(graph_cof.get("max_reflection_rounds", 2))
+
             workflow = StateGraph(FinancialAgentState)
             workflow.add_node("router", router_node)
             workflow.add_node("query_transform", query_transform_node)
             workflow.add_node("retrieval", retrieval_node)
-            workflow.add_node("graph_rag", graph_rag_node)
+            if enable_graph_rag:
+                workflow.add_node("graph_rag", graph_rag_node)
             workflow.add_node("calculator", calculator_node)
             workflow.add_node("web_search", web_search_node)
             workflow.add_node("reasoning", reasoning_node)
-            workflow.add_node("critic", critic_node)
-            workflow.add_node("citation_guard", citation_guard_node)
+            if enable_critic:
+                workflow.add_node("critic", critic_node)
+            if enable_citation_guard:
+                workflow.add_node("citation_guard", citation_guard_node)
             workflow.add_node("final_answer", final_answer_node)
 
             workflow.add_edge(START, "router")
             workflow.add_edge("router", "query_transform")
             workflow.add_edge("query_transform", "retrieval")
-            workflow.add_edge("retrieval", "graph_rag")
-            workflow.add_edge("graph_rag", "calculator")
-            workflow.add_edge("calculator", "web_search")
+            if enable_graph_rag:
+                workflow.add_edge("retrieval", "graph_rag")
+                workflow.add_edge("graph_rag", "calculator")
+            else:
+                workflow.add_edge("retrieval", "calculator")
+
+            def route_after_calculator(state: FinancialAgentState) -> str:
+                if state.get("needs_web_search") or enable_web_fallback:
+                    return "web_search"
+                return "reasoning"
+
+            workflow.add_conditional_edges(
+                "calculator",
+                route_after_calculator,
+                {
+                    "web_search": "web_search",
+                    "reasoning": "reasoning",
+                },
+            )
             workflow.add_edge("web_search", "reasoning")
-            workflow.add_edge("reasoning", "critic")
-            workflow.add_edge("critic", "citation_guard")
-            workflow.add_edge("citation_guard", "final_answer")
+
+            def route_after_reasoning(_: FinancialAgentState) -> str:
+                if enable_critic:
+                    return "critic"
+                if enable_citation_guard:
+                    return "citation_guard"
+                return "final_answer"
+
+            after_reasoning_edges = {"final_answer": "final_answer"}
+            if enable_critic:
+                after_reasoning_edges["critic"] = "critic"
+            if enable_citation_guard:
+                after_reasoning_edges["citation_guard"] = "citation_guard"
+            workflow.add_conditional_edges("reasoning", route_after_reasoning, after_reasoning_edges)
+
+            enable_query_rewrite = as_bool(rag_cof.get("enable_query_rewrite"), default=True)
+
+            if enable_critic:
+                if enable_query_rewrite:
+                    def route_after_critic(state: FinancialAgentState) -> str:
+                        critique = state.get("critique_result", {})
+                        blocking_issues = [i for i in critique.get("issues", []) if i.startswith("BLOCKING:")]
+                        needs_more = bool(
+                            critique.get("needs_more_evidence", False)
+                            or (blocking_issues and state.get("reflection_round", 0) < max_reflection_rounds)
+                        )
+                        if needs_more and state.get("reflection_round", 0) < max_reflection_rounds:
+                            return "query_transform"
+                        if enable_citation_guard:
+                            return "citation_guard"
+                        return "final_answer"
+
+                    critic_edges = {"final_answer": "final_answer"}
+                    critic_edges["query_transform"] = "query_transform"
+                    if enable_citation_guard:
+                        critic_edges["citation_guard"] = "citation_guard"
+                    workflow.add_conditional_edges("critic", route_after_critic, critic_edges)
+                else:
+                    def route_after_critic_no_reflection(state: FinancialAgentState) -> str:
+                        if enable_citation_guard:
+                            return "citation_guard"
+                        return "final_answer"
+
+                    critic_edges_no_reflection = {"final_answer": "final_answer"}
+                    if enable_citation_guard:
+                        critic_edges_no_reflection["citation_guard"] = "citation_guard"
+                    workflow.add_conditional_edges("critic", route_after_critic_no_reflection, critic_edges_no_reflection)
+
+            if enable_citation_guard:
+                workflow.add_edge("citation_guard", "final_answer")
             workflow.add_edge("final_answer", END)
             return workflow.compile()
         except Exception:
@@ -66,42 +141,89 @@ class FinancialGraphAgent:
             "user_id": self.user_id,
             "user_query": query,
             "reflection_round": 0,
+            "reflection_history": [],
             "memory_snapshot": self.short_memory.snapshot(),
         }
 
     def invoke(self, query: str) -> FinancialAgentState:
-        state = self._initial_state(query)
-        if self.compiled_graph is not None:
-            state = self.compiled_graph.invoke(state)
-        else:
-            state = self._invoke_fallback(state)
+        with log_stage("agent.invoke", user_id=self.user_id, query=safe_preview(query)) as stage:
+            state = self._initial_state(query)
+            if self.compiled_graph is not None:
+                state = self.compiled_graph.invoke(state)
+            else:
+                state = self._invoke_fallback(state)
 
-        final_answer = state.get("final_answer", "")
-        self.short_memory.append("user", query)
-        self.short_memory.append("assistant", final_answer)
-        if self.heartbeat.should_compact(list(self.short_memory.messages)):
-            self.short_memory.summary = self.heartbeat.summarize(
-                list(self.short_memory.messages), self.short_memory.summary
+            final_answer = state.get("final_answer", "")
+            self.short_memory.append("user", query)
+            self.short_memory.append("assistant", final_answer)
+            if self.heartbeat.should_compact(list(self.short_memory.messages)):
+                self.short_memory.summary = self.heartbeat.summarize(
+                    list(self.short_memory.messages), self.short_memory.summary
+                )
+            entities = state.get("entities", {})
+            self.profiles.remember_focus(
+                self.user_id,
+                entities.get("companies", []),
+                entities.get("metrics", []),
             )
-        entities = state.get("entities", {})
-        self.profiles.remember_focus(
-            self.user_id,
-            entities.get("companies", []),
-            entities.get("metrics", []),
-        )
-        return state
+            stage.add_done_fields(
+                final_answer_chars=len(final_answer),
+                evidence_cards=len(state.get("evidence_cards", [])),
+                intent=state.get("intent"),
+                reflection_round=state.get("reflection_round", 0),
+            )
+            return state
 
     def _invoke_fallback(self, state: FinancialAgentState) -> FinancialAgentState:
-        for node in [router_node, query_transform_node, retrieval_node, graph_rag_node, calculator_node]:
+        max_reflection_rounds = int(graph_cof.get("max_reflection_rounds", 2))
+        for node in [router_node, query_transform_node, retrieval_node]:
             state.update(node(state))
-        if state.get("needs_web_search") or graph_cof.get("enable_web_fallback", False):
+        if as_bool(rag_cof.get("enable_graph_rag"), default=True):
+            state.update(graph_rag_node(state))
+        else:
+            state["graph_relations"] = []
+        state.update(calculator_node(state))
+        if state.get("needs_web_search") or as_bool(graph_cof.get("enable_web_fallback"), default=False):
             state.update(web_search_node(state))
         else:
             state.setdefault("web_search_note", "")
         state.update(reasoning_node(state))
-        if graph_cof.get("enable_critic", True):
+        if as_bool(graph_cof.get("enable_critic"), default=True):
             state.update(critic_node(state))
-        if graph_cof.get("enable_citation_guard", True):
+            critique = state.get("critique_result", {})
+            enable_query_rewrite = as_bool(rag_cof.get("enable_query_rewrite"), default=True)
+            if enable_query_rewrite:
+                blocking_issues = [i for i in critique.get("issues", []) if i.startswith("BLOCKING:")]
+                needs_more = bool(
+                    critique.get("needs_more_evidence", False)
+                    or (blocking_issues and state.get("reflection_round", 0) < max_reflection_rounds)
+                )
+                while needs_more and state.get("reflection_round", 0) < max_reflection_rounds:
+                    history_entry = {
+                        "round": state.get("reflection_round", 0) + 1,
+                        "critique_issues": critique.get("issues", []),
+                        "evidence_count_before": len(state.get("evidence_cards", [])),
+                    }
+                    state["reflection_round"] = state.get("reflection_round", 0) + 1
+                    state.update(query_transform_node(state))
+                    state.update(retrieval_node(state))
+                    if as_bool(rag_cof.get("enable_graph_rag"), default=True):
+                        state.update(graph_rag_node(state))
+                    state.update(calculator_node(state))
+                    if state.get("needs_web_search") or as_bool(graph_cof.get("enable_web_fallback"), default=False):
+                        state.update(web_search_node(state))
+                    state.update(reasoning_node(state))
+                    state.update(critic_node(state))
+                    critique = state.get("critique_result", {})
+                    history_entry["evidence_count_after"] = len(state.get("evidence_cards", []))
+                    history_entry["critique_passed_after"] = critique.get("passed", False)
+                    state.setdefault("reflection_history", []).append(history_entry)
+                    blocking_issues = [i for i in critique.get("issues", []) if i.startswith("BLOCKING:")]
+                    needs_more = bool(
+                        critique.get("needs_more_evidence", False)
+                        or (blocking_issues and state.get("reflection_round", 0) < max_reflection_rounds)
+                    )
+        if as_bool(graph_cof.get("enable_citation_guard"), default=True):
             state.update(citation_guard_node(state))
         state.update(final_answer_node(state))
         return state

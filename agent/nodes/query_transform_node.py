@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from agent.llm_utils import compact_json, extract_json_object, invoke_llm
 from agent.state import FinancialAgentState
+from utils.config_handler import rag_cof
+from utils.helpers import as_bool
 
 
 def _metric_expansion(query: str) -> list[str]:
@@ -17,19 +19,46 @@ def _metric_expansion(query: str) -> list[str]:
     return list(dict.fromkeys(expansions))
 
 
-def _fallback_query_plan(query: str, entities: dict) -> dict:
+def _reflection_context(state: FinancialAgentState) -> str:
+    """Build a reflection hint from the previous critique result."""
+    critique = state.get("critique_result", {})
+    issues = critique.get("issues", [])
+    blocking = [i for i in issues if i.startswith("BLOCKING:")]
+    if not blocking:
+        return ""
+    round_num = state.get("reflection_round", 0)
+    return (
+        f"上一轮审查（第{round_num}轮）发现问题：\n"
+        + "\n".join(f"- {i}" for i in blocking)
+        + "\n请针对以上问题调整改写策略，重点弥补缺失的证据维度。"
+    )
+
+
+def _fallback_query_plan(query: str, entities: dict, reflection_hint: str = "") -> dict:
     expansions = _metric_expansion(query)
     entity_text = " ".join(sum(entities.values(), [])) if entities else ""
-    rewritten = " ".join(part for part in [query, entity_text, " ".join(expansions)] if part)
+    rewritten_parts = [query, entity_text, " ".join(expansions)]
+    if reflection_hint:
+        rewritten_parts.append(reflection_hint)
+    rewritten = " ".join(part for part in rewritten_parts if part)
     sub_queries = [query]
-    if any(keyword in query for keyword in ["和", "影响", "如何", "为什么", "是否"]):
-        for metric in expansions[:4]:
-            sub_queries.append(f"{entity_text} {metric} {query}".strip())
-    hyde = (
-        f"假设性金融分析文档：围绕“{query}”，需要检查收入、利润、毛利率、现金流、估值、"
-        "管理层表述、研报预测和风险提示，并交叉验证来源页码。"
-    )
-    sub_queries.append(hyde)
+    enable_sub_queries = as_bool(rag_cof.get("enable_sub_queries"), default=True)
+    if enable_sub_queries:
+        if any(keyword in query for keyword in ["和", "影响", "如何", "为什么", "是否"]):
+            for metric in expansions[:4]:
+                sub_queries.append(f"{entity_text} {metric} {query}".strip())
+    enable_hyde = as_bool(rag_cof.get("enable_hyde"), default=True)
+    hyde = ""
+    if enable_hyde:
+        hyde = (
+            "假设性金融分析文档：围绕"
+            + query
+            + "，需要检查收入、利润、毛利率、现金流、估值、"
+            "管理层表述、研报预测和风险提示，并交叉验证来源页码。"
+        )
+        if reflection_hint:
+            hyde += f" 特别注意弥补：{reflection_hint}"
+        sub_queries.append(hyde)
     return {
         "original_query": query,
         "rewritten_query": rewritten,
@@ -41,7 +70,16 @@ def _fallback_query_plan(query: str, entities: dict) -> dict:
     }
 
 
-def _llm_query_plan(query: str, entities: dict) -> dict:
+def _llm_query_plan(query: str, entities: dict, reflection_hint: str = "") -> dict:
+    reflection_section = ""
+    if reflection_hint:
+        reflection_section = f"""
+反思上下文：
+{reflection_hint}
+
+请针对审查反馈调整改写策略，重点弥补上一轮缺失的证据维度。
+"""
+
     prompt = f"""
 你是金融研报 RAG 系统的查询规划节点。请把用户问题改写成适合混合检索和多跳推理的结构化查询。
 
@@ -58,8 +96,9 @@ def _llm_query_plan(query: str, entities: dict) -> dict:
 已抽取实体：
 {compact_json(entities)}
 
+{reflection_section}
 输出 JSON schema：
-{{
+ {{
   "rewritten_query": "...",
   "sub_queries": ["..."],
   "hyde_document": "...",
@@ -76,7 +115,13 @@ def _llm_query_plan(query: str, entities: dict) -> dict:
     if not isinstance(required_metrics, list):
         required_metrics = [str(required_metrics)]
     hyde = str(data.get("hyde_document") or "")
-    if hyde:
+    enable_hyde = as_bool(rag_cof.get("enable_hyde"), default=True)
+    if not enable_hyde:
+        hyde = ""
+    enable_sub_queries = as_bool(rag_cof.get("enable_sub_queries"), default=True)
+    if not enable_sub_queries:
+        sub_queries = [query]
+    elif hyde:
         sub_queries.append(hyde)
     return {
         "original_query": query,
@@ -94,14 +139,23 @@ def _llm_query_plan(query: str, entities: dict) -> dict:
 def query_transform_node(state: FinancialAgentState) -> dict:
     query = state.get("user_query", "")
     entities = state.get("entities", {})
-    try:
-        plan = _llm_query_plan(query, entities)
-    except Exception as exc:
-        plan = _fallback_query_plan(query, entities)
-        plan["llm_error"] = str(exc)
+    enable_query_rewrite = as_bool(rag_cof.get("enable_query_rewrite"), default=True)
+    reflection_hint = _reflection_context(state)
+    new_round = state.get("reflection_round", 0) + 1 if reflection_hint else state.get("reflection_round", 0)
 
-    sub_queries = [query, plan.get("rewritten_query", query), *plan.get("sub_queries", [])]
+    if not enable_query_rewrite:
+        plan = _fallback_query_plan(query, entities, reflection_hint)
+        sub_queries = plan.get("sub_queries", [query])
+    else:
+        try:
+            plan = _llm_query_plan(query, entities, reflection_hint)
+        except Exception as exc:
+            plan = _fallback_query_plan(query, entities, reflection_hint)
+            plan["llm_error"] = str(exc)
+        sub_queries = [query, plan.get("rewritten_query", query), *plan.get("sub_queries", [])]
+
     return {
         "query_plan": plan,
         "sub_queries": list(dict.fromkeys([item for item in sub_queries if item])),
+        "reflection_round": new_round,
     }
