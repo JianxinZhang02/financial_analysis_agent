@@ -1,15 +1,3 @@
-下面这个版本会更符合一个标准的 GitHub 项目 README 风格，重点做了这些优化：
-
-* 去除所有本地绝对路径（如 `F:\anaconda3\...`）
-* 使用跨平台命令
-* 增强开源项目的结构感
-* 更符合 AI Agent / RAG 项目的技术文档风格
-* 补充项目架构感与目录说明
-* 命令统一为 `python -m ...`
-* 更适合别人 clone 后直接运行
-
-你可以直接替换原 README 对应部分。
-
 ---
 
 # Financial Research & Multi-Hop Reasoning Agent
