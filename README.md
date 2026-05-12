@@ -2,6 +2,10 @@
 
 一个基于模块化 RAG + Agent 架构构建的金融分析与多跳推理智能体系统。
 
+<p align="center">
+  <img src="docs/demo.png" width="90%">
+</p>
+
 ---
 
 # 功能特性
