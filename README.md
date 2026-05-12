@@ -174,10 +174,7 @@ Current company coverage includes:
 * Alibaba
 * Baidu
 * Meituan
-* NetEase
-* Pinduoduo
 * Kuaishou
-* Bilibili
 
 The dataset focuses on:
 
