@@ -5,10 +5,13 @@ require_document_registry: true
 auto_register_local_files: true
 retriever_k: 4
 rerank_top_n: 3
+rerank_batch_size: 8
+rerank_max_length: 512
+rerank_local_files_only: true
 chunk_max_chars: 1200
 chunk_overlap_chars: 120
 enable_hyde: false
-enable_query_rewrite: false
+enable_query_rewrite: false   # 是否查询改写，
 enable_sub_queries: false
 enable_graph_rag: true
 dense_weight: 0.35

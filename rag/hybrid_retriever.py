@@ -28,7 +28,7 @@ class DenseSearchStep(RetrievalStep):
         top_k = context.get("top_k", 8)
         metadata_filter = context.get("metadata_filter")
         search_query = context.get("search_query", query)
-        hits = self.vector_store.search(search_query, top_k=top_k, metadata_filter=metadata_filter)
+        hits = self.vector_store.search(search_query, top_k=top_k, metadata_filter=metadata_filter)     # 分数吧
         context["dense_hits"] = hits
         for chunk, score in hits:
             entry = context["merged"].setdefault(chunk.chunk_id, {"chunk": chunk, "dense_score": 0.0, "bm25_score": 0.0})
@@ -46,10 +46,10 @@ class BM25SearchStep(RetrievalStep):
         search_query = context.get("search_query", query)
         hits = self.bm25_store.search(search_query, top_k=top_k, metadata_filter=metadata_filter)
         context["bm25_hits"] = hits
-        max_bm25 = max([score for _, score in hits], default=0.0) or 1.0
+        max_bm25 = max([score for _, score in hits], default=0.0) or 1.0    
         for chunk, score in hits:
             entry = context["merged"].setdefault(chunk.chunk_id, {"chunk": chunk, "dense_score": 0.0, "bm25_score": 0.0})
-            entry["bm25_score"] = max(entry["bm25_score"], score / max_bm25)
+            entry["bm25_score"] = max(entry["bm25_score"], score / max_bm25)    # 做一个压缩
         return list(context["merged"].values())
 
 
@@ -59,7 +59,9 @@ class RerankStep(RetrievalStep):
 
     def run(self, query: str, candidates: list[dict[str, Any]], context: dict[str, Any]) -> list[dict[str, Any]]:
         top_n = context.get("top_n", 6)
-        return self.reranker.rerank(context.get("search_query", query), candidates, top_n=top_n)
+        reranked = self.reranker.rerank(context.get("search_query", query), candidates, top_n=top_n)
+        context["reranked"] = reranked
+        return reranked
 
 
 class CompressStep(RetrievalStep):
@@ -108,7 +110,7 @@ class HybridRetriever:
             CompressStep(self.compressor),
         ])
 
-    def retrieve(self, query: str, top_k: int | None = None, top_n: int | None = None) -> list[dict]:
+    def retrieve(self, query: str, top_k: int | None = None, top_n: int | None = None) -> list[dict]:   # 更健壮，有兜底
         with log_stage("rag.retrieve", query=safe_preview(query)) as stage:
             top_k = top_k or int(rag_cof.get("retriever_k", 8))
             top_n = top_n or int(rag_cof.get("rerank_top_n", 6))
@@ -117,11 +119,12 @@ class HybridRetriever:
             context = {
                 "top_k": top_k,
                 "top_n": top_n,
-                "metadata_filter": metadata_filter,
+                "metadata_filter": metadata_filter,     # 这个感觉有点鸡肋 包含有(company_id,report_period)
                 "search_query": search_query,
                 "merged": {},
             }
-            self.pipeline.execute(query, context)
+            self.pipeline.execute(query, context)   # 前两步（Dense + BM25）是并列的，各自独立检索；后两步（Rerank + Compress）是串行依赖的
+
             reranked = context.get("reranked", list(context.get("merged", {}).values()))
             stage.add_done_fields(
                 top_k=top_k,
@@ -134,7 +137,7 @@ class HybridRetriever:
             )
             return reranked
 
-    def retrieve_evidence(self, query: str, top_k: int | None = None, top_n: int | None = None):
+    def retrieve_evidence(self, query: str, top_k: int | None = None, top_n: int | None = None):    # 更精简，直接取流水线产出的证据卡片
         context = {
             "top_k": top_k or int(rag_cof.get("retriever_k", 8)),
             "top_n": top_n or int(rag_cof.get("rerank_top_n", 6)),

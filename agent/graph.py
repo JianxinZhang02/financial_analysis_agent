@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
-from agent.nodes.calculator_node import calculator_node
+from agent.nodes.calculator_node import calculator_node     # 相关节点导入
 from agent.nodes.citation_guard_node import citation_guard_node
 from agent.nodes.critic_node import critic_node
 from agent.nodes.final_answer_node import final_answer_node
@@ -13,7 +13,7 @@ from agent.nodes.reasoning_node import reasoning_node
 from agent.nodes.retrieval_node import retrieval_node
 from agent.nodes.router_node import router_node
 from agent.nodes.web_search_node import web_search_node
-from agent.state import FinancialAgentState
+from agent.state import FinancialAgentState  # 导入状态、记忆、配置和日志工具    FinancialAgentState是全局状态节点
 from memory.heartbeat import MemoryHeartbeat
 from memory.short_term import ShortTermMemory
 from memory.user_profile import UserProfileService
@@ -36,15 +36,15 @@ class FinancialGraphAgent:
         try:
             from langgraph.graph import END, START, StateGraph
 
-            enable_graph_rag = as_bool(rag_cof.get("enable_graph_rag"), default=True)
-            enable_web_fallback = as_bool(graph_cof.get("enable_web_fallback"), default=False)
-            enable_critic = as_bool(graph_cof.get("enable_critic"), default=True)
-            enable_citation_guard = as_bool(graph_cof.get("enable_citation_guard"), default=True)
-            max_reflection_rounds = int(graph_cof.get("max_reflection_rounds", 2))
+            enable_graph_rag = as_bool(rag_cof.get("enable_graph_rag"), default=True)       # 图rag
+            enable_web_fallback = as_bool(graph_cof.get("enable_web_fallback"), default=False)      # web搜索后备
+            enable_critic = as_bool(graph_cof.get("enable_critic"), default=True)   # 评审机制
+            enable_citation_guard = as_bool(graph_cof.get("enable_citation_guard"), default=True)   # 引用检查机制
+            max_reflection_rounds = int(graph_cof.get("max_reflection_rounds", 2))  # 最大反思轮数
 
             workflow = StateGraph(FinancialAgentState)
             workflow.add_node("router", router_node)
-            workflow.add_node("query_transform", query_transform_node)
+            workflow.add_node("query_transform", query_transform_node)      # 感觉这个改写有点鸡肋，很复杂
             workflow.add_node("retrieval", retrieval_node)
             if enable_graph_rag:
                 workflow.add_node("graph_rag", graph_rag_node)
@@ -60,7 +60,7 @@ class FinancialGraphAgent:
             workflow.add_edge(START, "router")
             workflow.add_edge("router", "query_transform")
             workflow.add_edge("query_transform", "retrieval")
-            if enable_graph_rag:
+            if enable_graph_rag:        # if graph_rag就走这个
                 workflow.add_edge("retrieval", "graph_rag")
                 workflow.add_edge("graph_rag", "calculator")
             else:
@@ -99,18 +99,23 @@ class FinancialGraphAgent:
 
             if enable_critic:
                 if enable_query_rewrite:
-                    def route_after_critic(state: FinancialAgentState) -> str:
+                    def route_after_critic(state: FinancialAgentState) -> str:\
+                        # 1. 看质检报告
                         critique = state.get("critique_result", {})
                         blocking_issues = [i for i in critique.get("issues", []) if i.startswith("BLOCKING:")]
+
+                        # 2. 判断是否需要“打回重做”
                         needs_more = bool(
                             critique.get("needs_more_evidence", False)
                             or (blocking_issues and state.get("reflection_round", 0) < max_reflection_rounds)
                         )
+
+                        # 3. 决定去向
                         if needs_more and state.get("reflection_round", 0) < max_reflection_rounds:
-                            return "query_transform"
+                            return "query_transform"    # # 路线 A：打回重做
                         if enable_citation_guard:
-                            return "citation_guard"
-                        return "final_answer"
+                            return "citation_guard"     # # 路线 B：通过质检，送去加护栏
+                        return "final_answer"           # # 路线 C：通过质检，直接打包
 
                     critic_edges = {"final_answer": "final_answer"}
                     critic_edges["query_transform"] = "query_transform"
@@ -174,7 +179,7 @@ class FinancialGraphAgent:
             )
             return state
 
-    def _invoke_fallback(self, state: FinancialAgentState) -> FinancialAgentState:
+    def _invoke_fallback(self, state: FinancialAgentState) -> FinancialAgentState:      # 回退/兜底/降级机制
         max_reflection_rounds = int(graph_cof.get("max_reflection_rounds", 2))
         for node in [router_node, query_transform_node, retrieval_node]:
             state.update(node(state))

@@ -15,7 +15,7 @@ COMPANY_ALIASES = {
 }
 
 
-def infer_metadata_filter(query: str) -> dict[str, str]:
+def infer_metadata_filter(query: str) -> dict[str, str]:    # 这里是旧版本 之前的那个!!!
     metadata_filter: dict[str, str] = {}
     lowered = query.lower()
 
@@ -31,7 +31,7 @@ def infer_metadata_filter(query: str) -> dict[str, str]:
     return metadata_filter
 
 
-def normalize_query_for_metadata_filter(query: str, metadata_filter: dict[str, str] | None) -> str:
+def normalize_query_for_metadata_filter(query: str, metadata_filter: dict[str, str] | None) -> str:     # 感觉这个有点抽象好像没用啊，甚至是负作用
     """Remove terms already enforced by metadata filters before lexical/vector search."""
 
     if not metadata_filter:

@@ -5,5 +5,7 @@ embedding_provider: dashscope_compatible
 embedding_model_name: text-embedding-v4
 embedding_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
 embedding_chunk_size: 8
-rerank_provider: local
-rerank_model_name: local-lexical-reranker
+rerank_provider: local_cross_encoder
+rerank_model_name: E:\迅雷下载\bge-reranker-base
+# 可以加上下面这行，确保不强制离线
+rerank_local_files_only: true

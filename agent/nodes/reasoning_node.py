@@ -73,34 +73,34 @@ def _llm_reasoning(state: FinancialAgentState) -> str:
     risk_disclaimer = compliance_cof.get("risk_disclaimer", "以上内容不构成投资建议。")
 
     prompt = f"""
-你是金融研报分析师 Agent。请基于给定 EvidenceCard、GraphRAG 关系和可复核计算回答用户问题。
+        你是金融研报分析师 Agent。请基于给定 EvidenceCard、GraphRAG 关系和可复核计算回答用户问题。
 
-硬性约束：
-1. 所有财务数字、公司结论、预测假设必须来自 EvidenceCard 或计算结果。
-2. 每条关键结论必须附引用，格式为：【来源：文件名，第X页】。
-3. 区分“事实”“预测/假设”“分析判断”，不要把预测当成事实。
-4. 不得输出确定性买卖建议，不得承诺收益。
-5. 如果证据不足，明确说“当前资料不足以确认”，不要编造。
-6. 用中文输出，结构清晰，最后附风险提示。
+        硬性约束：
+        1. 所有财务数字、公司结论、预测假设必须来自 EvidenceCard 或计算结果。
+        2. 每条关键结论必须附引用，格式为：【来源：文件名，第X页】。
+        3. 区分“事实”“预测/假设”“分析判断”，不要把预测当成事实。
+        4. 不得输出确定性买卖建议，不得承诺收益。
+        5. 如果证据不足，明确说“当前资料不足以确认”，不要编造。
+        6. 用中文输出，结构清晰，最后附风险提示。
 
-用户问题：
-{query}
+        用户问题：
+        {query}
 
-EvidenceCard 列表：
-{compact_json(cards)}
+        EvidenceCard 列表：
+        {compact_json(cards)}
 
-GraphRAG 关系：
-{compact_json(relations)}
+        GraphRAG 关系：
+        {compact_json(relations)}
 
-可复核计算：
-{compact_json(calculations)}
+        可复核计算：
+        {compact_json(calculations)}
 
-外部搜索说明：
-{web_note}
+        外部搜索说明：
+        {web_note}
 
-风险提示固定句：
-{risk_disclaimer}
-"""
+        风险提示固定句：
+        {risk_disclaimer}
+        """
     return invoke_llm(prompt)
 
 

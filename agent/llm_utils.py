@@ -17,7 +17,7 @@ def using_real_llm() -> bool:
     return not isinstance(chat_model, SimpleChatModel)
 
 
-def invoke_llm(prompt: str, max_retries: int = 3, retry_delay: float = 1.0) -> str:
+def invoke_llm(prompt: str, max_retries: int = 3, retry_delay: float = 1.0) -> str: # 这个好像是调用LLM的工具函数，包含重试机制和日志记录
     with log_stage("llm.invoke", prompt_chars=len(prompt), model=chat_model.__class__.__name__) as stage:
         if not using_real_llm():
             raise LLMCallError("chat_model is SimpleChatModel fallback, not a real LLM provider.")

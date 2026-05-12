@@ -70,42 +70,42 @@ def _fallback_query_plan(query: str, entities: dict, reflection_hint: str = "") 
     }
 
 
-def _llm_query_plan(query: str, entities: dict, reflection_hint: str = "") -> dict:
+def _llm_query_plan(query: str, entities: dict, reflection_hint: str = "") -> dict:  # 查询改写还要依据反思去做吗？不是直接去改写吗？然后这里的假设性文档又是什么作用
     reflection_section = ""
     if reflection_hint:
         reflection_section = f"""
-反思上下文：
-{reflection_hint}
+        反思上下文：
+        {reflection_hint}
 
-请针对审查反馈调整改写策略，重点弥补上一轮缺失的证据维度。
-"""
+        请针对审查反馈调整改写策略，重点弥补上一轮缺失的证据维度。
+        """
 
     prompt = f"""
-你是金融研报 RAG 系统的查询规划节点。请把用户问题改写成适合混合检索和多跳推理的结构化查询。
+    你是金融研报 RAG 系统的查询规划节点。请把用户问题改写成适合混合检索和多跳推理的结构化查询。
 
-要求：
-1. 输出严格 JSON，不要 Markdown，不要额外解释。
-2. rewritten_query 要包含金融专业术语、时间范围、公司/股票代码、指标。
-3. sub_queries 用于多路召回，最多 5 条，必须具体、可检索。
-4. hyde_document 是一段假设性金融分析文档，仅用于向量检索，不得当作最终事实。
-5. required_metrics 只列与问题直接相关的指标。
+    要求：
+    1. 输出严格 JSON，不要 Markdown，不要额外解释。
+    2. rewritten_query 要包含金融专业术语、时间范围、公司/股票代码、指标。
+    3. sub_queries 用于多路召回，最多 5 条，必须具体、可检索。
+    4. hyde_document 是一段假设性金融分析文档，仅用于向量检索，不得当作最终事实。
+    5. required_metrics 只列与问题直接相关的指标。
 
-用户问题：
-{query}
+    用户问题：
+    {query}
 
-已抽取实体：
-{compact_json(entities)}
+    已抽取实体：
+    {compact_json(entities)}
 
-{reflection_section}
-输出 JSON schema：
- {{
-  "rewritten_query": "...",
-  "sub_queries": ["..."],
-  "hyde_document": "...",
-  "required_metrics": ["..."],
-  "intent_hint": "financial_analysis|calculation|graph_reasoning|realtime_financial_search"
-}}
-"""
+    {reflection_section}
+    输出 JSON schema：
+    {{
+    "rewritten_query": "...",
+    "sub_queries": ["..."],
+    "hyde_document": "...",
+    "required_metrics": ["..."],
+    "intent_hint": "financial_analysis|calculation|graph_reasoning|realtime_financial_search"
+    }}
+    """
     raw = invoke_llm(prompt)
     data = extract_json_object(raw)
     sub_queries = data.get("sub_queries") or [query]
@@ -133,10 +133,10 @@ def _llm_query_plan(query: str, entities: dict, reflection_hint: str = "") -> di
         "intent_hint": str(data.get("intent_hint") or ""),
         "llm_used": True,
         "llm_raw": raw,
-    }
+    }   # 感觉这里好冗余啊，好像给一段假设性文档是OK 可以被接受的
 
 
-def query_transform_node(state: FinancialAgentState) -> dict:
+def query_transform_node(state: FinancialAgentState) -> dict:   # 查询改写和多路查询生成节点
     query = state.get("user_query", "")
     entities = state.get("entities", {})
     enable_query_rewrite = as_bool(rag_cof.get("enable_query_rewrite"), default=True)
@@ -144,18 +144,18 @@ def query_transform_node(state: FinancialAgentState) -> dict:
     new_round = state.get("reflection_round", 0) + 1 if reflection_hint else state.get("reflection_round", 0)
 
     if not enable_query_rewrite:
-        plan = _fallback_query_plan(query, entities, reflection_hint)
+        plan = _fallback_query_plan(query, entities, reflection_hint)   # 如果不开启查询改写，直接使用fallback方案生成查询计划，且不使用LLM
         sub_queries = plan.get("sub_queries", [query])
     else:
         try:
             plan = _llm_query_plan(query, entities, reflection_hint)
-        except Exception as exc:
+        except Exception as exc:    # 如果LLM调用失败，回退到fallback方案，并记录错误信息
             plan = _fallback_query_plan(query, entities, reflection_hint)
             plan["llm_error"] = str(exc)
         sub_queries = [query, plan.get("rewritten_query", query), *plan.get("sub_queries", [])]
 
     return {
         "query_plan": plan,
-        "sub_queries": list(dict.fromkeys([item for item in sub_queries if item])),
+        "sub_queries": list(dict.fromkeys([item for item in sub_queries if item])),     # 去重并过滤空查询
         "reflection_round": new_round,
     }

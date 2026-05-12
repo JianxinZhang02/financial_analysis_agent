@@ -27,17 +27,15 @@ class LongTermMemory:
 
     def get_profile(self, user_id: str) -> dict[str, Any]:
         return self._data.setdefault(
-            user_id,
-            {
-                "watchlist": [],
-                "preferred_metrics": [],
-                "risk_preference": "unknown",
-                "language_style": "professional",
-                "history_topics": [],
-            },
-        )
+            user_id, {
+                "watchlist": [],          # 关注的公司列表
+                "preferred_metrics": [],  # 偏好的财务指标
+                "risk_preference": "unknown",     # 风险偏好
+                "language_style": "professional", # 回复风格
+                "history_topics": [],     # 历史讨论话题
+        })
 
-    def update_profile(self, user_id: str, **kwargs) -> dict[str, Any]:
+    def update_profile(self, user_id: str, **kwargs) -> dict[str, Any]:     # 两种不同的更新策略 列表字段 → 去重追加，不覆盖；普通字段 → 直接覆盖 
         profile = self.get_profile(user_id)
         for key, value in kwargs.items():
             if isinstance(profile.get(key), list):

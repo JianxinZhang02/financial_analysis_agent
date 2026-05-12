@@ -16,7 +16,10 @@ def _get_retriever() -> HybridRetriever:
 
 
 def retrieval_node(state: FinancialAgentState) -> dict:
-    sub_queries = state.get("sub_queries") or [state.get("user_query", "")]
+    sub_queries = state.get("sub_queries")
+    if not sub_queries:  # 覆盖 None 和 [] 两种情况，但语义更清晰
+        sub_queries = [state.get("user_query", "")]
+        
     with log_stage("retrieval", sub_queries=len(sub_queries)) as stage:
         retriever = _get_retriever()
         cards = []
