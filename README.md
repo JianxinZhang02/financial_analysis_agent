@@ -2,8 +2,6 @@
 
 一个基于模块化 RAG + Agent 架构构建的金融分析与多跳推理智能体系统。
 
-本项目由 `robot_vacuum_agent` 原型重构而来，面向金融研究、证据驱动分析（Evidence-Grounded Analysis）以及长上下文推理场景进行了重新设计。
-
 ---
 
 # 功能特性
