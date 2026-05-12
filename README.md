@@ -1,124 +1,126 @@
----
+# 金融研报分析与多跳推理 Agent
 
-# Financial Research & Multi-Hop Reasoning Agent
+一个基于模块化 RAG + Agent 架构构建的金融分析与多跳推理智能体系统。
 
-A financial analysis and multi-hop reasoning agent built on top of a modular RAG + Agent architecture.
-
-This project is refactored from the `robot_vacuum_agent` prototype and redesigned for financial research, evidence-grounded analysis, and long-context reasoning workflows.
+本项目由 `robot_vacuum_agent` 原型重构而来，面向金融研究、证据驱动分析（Evidence-Grounded Analysis）以及长上下文推理场景进行了重新设计。
 
 ---
 
-# Features
+# 功能特性
 
-## Multi-Source Financial Data Ingestion
+## 多源金融数据接入（Financial Data Ingestion）
 
-Supports heterogeneous financial documents:
+支持异构金融文档解析与接入：
 
 * TXT
 * Markdown
 * PDF
 * CSV
-* Image placeholders (OCR-ready)
+* 图片占位（预留 OCR 能力）
 
 ---
 
-## Advanced RAG Pipeline
+## 高级 RAG 检索增强流水线
 
-Includes multiple retrieval and reasoning strategies:
+集成多种检索与推理策略：
 
-* Structural chunking
-* Semantic chunking
+* 结构化切分（Structural Chunking）
+* 语义切分（Semantic Chunking）
 * Query Rewrite
-* HyDE generation
-* Sub-query decomposition
-* BM25 retrieval
-* Dense vector retrieval
-* Local reranking
-* Hybrid RAG orchestration
+* HyDE 假设文档生成
+* 子问题拆解（Sub-query Decomposition）
+* BM25 稀疏检索
+* 向量检索（Dense Retrieval）
+* 本地 Rerank 重排序
+* Hybrid RAG 混合检索编排
 
 ---
 
-## Evidence-Grounded Financial Analysis
+## 基于证据的金融分析（Evidence-Grounded Analysis）
 
-All financial conclusions are grounded in structured `EvidenceCard` objects.
+所有金融结论都必须绑定结构化 `EvidenceCard` 证据对象。
 
-Each evidence item preserves:
+每条证据均保留：
 
 * `source_file`
 * `page_number`
 * `chunk_id`
 
-The system refuses unsupported financial claims when evidence is insufficient.
+当证据不足时，系统会拒绝生成无法溯源的金融结论，从而降低幻觉风险。
 
 ---
 
-## Agentic Workflow with LangGraph
+## 基于 LangGraph 的 Agent 工作流
 
-Built with a multi-node agent architecture:
+系统采用多节点 Agent 架构设计，包括：
 
-* Analyst node
-* Critic / compliance reviewer
-* Citation guard
-* Memory manager
-* Retrieval planner
+* Analyst 分析节点
+* Critic / 合规审查节点
+* Citation Guard 引用校验
+* Memory Manager 记忆管理
+* Retrieval Planner 检索规划器
 
-Supports:
+支持：
 
-* LangGraph state-machine execution
-* Graceful local fallback when dependencies are unavailable
-
----
-
-## Memory System
-
-Includes both:
-
-### Short-Term Memory
-
-Session-level conversational state.
-
-### Long-Term Memory
-
-Persistent user profile and preference storage.
-
-### Heartbeat Summarization
-
-Periodic compression and summarization of historical context.
+* LangGraph 状态机工作流执行
+* 依赖缺失时的本地顺序降级执行
 
 ---
 
-## GraphRAG Prototype
+# 记忆系统（Memory System）
 
-Early GraphRAG support:
+系统同时包含：
 
-* Entity extraction
-* Relation extraction
-* Neighbor retrieval
-* Graph-enhanced reasoning
+## 短期记忆（Short-Term Memory）
+
+维护会话级上下文状态。
 
 ---
 
-# Quick Start
+## 长期记忆（Long-Term Memory）
 
-## CLI Mode
+持久化保存用户画像与偏好信息。
 
-You can run the agent directly from the command line without Streamlit or LangGraph UI dependencies:
+---
+
+## Heartbeat 摘要机制
+
+定期压缩与总结历史上下文，降低长上下文推理成本。
+
+---
+
+# GraphRAG 原型支持
+
+当前已实现 GraphRAG 雏形能力：
+
+* 实体抽取（Entity Extraction）
+* 关系抽取（Relation Extraction）
+* 邻居检索（Neighbor Retrieval）
+* 图增强推理（Graph-Enhanced Reasoning）
+
+---
+
+# 快速开始
+
+## CLI 命令行模式
+
+即使未安装 Streamlit 或 LangGraph UI 依赖，也可以先通过 CLI 验证 Agent：
 
 ```bash
-python app.py "How was ExampleTech's cash flow quality in 2024?"
+python app.py "示例科技2024年的现金流质量如何？"
 ```
 
 ---
 
-## Web Workbench
+## Web 工作台模式
 
-Install dependencies:
+安装依赖：
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Launch the Streamlit interface:
+启动 Streamlit Web 界面：
 
 ```bash
 streamlit run app.py
@@ -126,33 +128,33 @@ streamlit run app.py
 
 ---
 
-# Build the Retrieval Index
+# 构建检索索引
 
-Run the ingestion pipeline:
+运行数据 ingestion 流水线：
 
 ```bash
 python -m ingestion.pipeline
 ```
 
-This generates:
+该命令会生成：
 
 ```text
 data/processed/chunks.jsonl
 ```
 
-Auditable intermediate chunk artifacts.
+用于审计与追踪的中间 Chunk 产物。
 
-and:
+以及：
 
 ```text
 data/indexes/chroma_db/
 ```
 
-Persistent Chroma vector database used for retrieval.
+用于向量检索的 Chroma 持久化向量数据库。
 
 ---
 
-## Rebuild Only the Vector Store
+## 仅重建向量库
 
 ```bash
 python -m rag.vector_store
@@ -160,30 +162,29 @@ python -m rag.vector_store
 
 ---
 
-# Financial Dataset Layer
+# 金融数据集层（Financial Dataset Layer）
 
-The project includes a real-world financial dataset layer under:
+项目内置真实金融数据集目录：
 
 ```text
 data/raw/financial_reports/
 ```
 
-Current company coverage includes:
+当前覆盖公司包括：
 
-* Tencent
-* Alibaba
-* Baidu
-* Meituan
-* Kuaishou
+* 腾讯（Tencent）
+* 阿里巴巴（Alibaba）
+* 百度（Baidu）
+* 快手（Kuaishou）
 
-The dataset focuses on:
+数据集重点聚焦：
 
-* Chinese internet platforms
-* AI companies
-* Cloud infrastructure
-* SaaS businesses
+* 中国互联网平台企业
+* AI 公司
+* 云计算基础设施
+* SaaS 软件企业
 
-Metadata is managed through:
+元数据通过以下文件统一管理：
 
 ```text
 company_registry.csv
@@ -192,9 +193,9 @@ document_registry.csv
 
 ---
 
-# Dataset Utilities
+# 数据集工具
 
-## Validate Dataset
+## 校验数据集
 
 ```bash
 python scripts/validate_financial_dataset.py
@@ -202,9 +203,9 @@ python scripts/validate_financial_dataset.py
 
 ---
 
-## Collect SEC Filings
+## 下载 SEC 文件
 
-Set your SEC user agent first:
+首先配置 SEC User-Agent。
 
 ### Linux / macOS
 
@@ -218,7 +219,7 @@ export SEC_USER_AGENT="Your Name your_email@example.com"
 $env:SEC_USER_AGENT="Your Name your_email@example.com"
 ```
 
-Then run:
+然后执行：
 
 ```bash
 python scripts/collect_sec_filings.py
@@ -226,7 +227,7 @@ python scripts/collect_sec_filings.py
 
 ---
 
-# Project Structure
+# 项目结构
 
 ```text
 .
@@ -247,48 +248,46 @@ python scripts/collect_sec_filings.py
 
 ---
 
-# Core Design Principles
+# 核心设计原则
 
-## Evidence First
+## Evidence First（证据优先）
 
-Financial metrics and conclusions must be traceable to source evidence.
-
----
-
-## Citation Safety
-
-The system includes a citation guard to prevent unsupported hallucinated claims.
+所有金融指标与分析结论必须能够追溯到原始证据。
 
 ---
 
-## Modular Agent Architecture
+## Citation Safety（引用安全）
 
-Each reasoning capability is isolated into composable agent nodes.
-
----
-
-# Future Roadmap
-
-* OCR pipeline integration
-* Full GraphRAG support
-* Financial time-series tools
-* Multi-agent debate workflows
-* Portfolio reasoning
-* Earnings-call analysis
-* SEC filing auto-sync
-* Quantitative factor extraction
+系统包含 Citation Guard 机制，用于避免生成缺乏证据支撑的幻觉性结论。
 
 ---
 
-# Documentation
+## Modular Agent Architecture（模块化 Agent 架构）
 
-See:
+每种推理能力均被拆分为独立可组合节点，便于扩展与维护。
+
+---
+
+# 后续规划（Roadmap）
+
+* OCR 文档解析集成
+* 完整版 GraphRAG
+* 金融时序分析工具
+* Multi-Agent Debate 多智能体辩论
+* 投资组合推理（Portfolio Reasoning）
+* 财报电话会议分析
+* SEC 文件自动同步
+* 量化因子抽取
+
+---
+
+# 文档说明
+
+详细数据集说明见：
 
 ```text
 docs/financial_dataset_v0.md
 ```
-
-for detailed dataset specifications and collection workflows.
 
 ---
 
