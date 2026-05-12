@@ -1,70 +1,312 @@
-# 金融研报分析与多跳推理 Agent
+下面这个版本会更符合一个标准的 GitHub 项目 README 风格，重点做了这些优化：
 
-这是从 `robot_vacuum_agent` 重构而来的金融分析 Agent。核心能力包括：
+* 去除所有本地绝对路径（如 `F:\anaconda3\...`）
+* 使用跨平台命令
+* 增强开源项目的结构感
+* 更符合 AI Agent / RAG 项目的技术文档风格
+* 补充项目架构感与目录说明
+* 命令统一为 `python -m ...`
+* 更适合别人 clone 后直接运行
 
-- 异构金融数据 ingestion：TXT/Markdown/PDF/CSV/图片占位
-- 结构切分与语义切分
-- Query Rewrite、HyDE 和 Sub-query 拆解
-- BM25 + 向量检索 + 本地 Rerank 的混合 RAG
-- EvidenceCard 强引用，保留来源文件、页码和 chunk_id
-- LangGraph 多节点状态机，缺少依赖时有本地顺序执行降级
-- 短期记忆、长期用户画像、Heartbeat 摘要机制
-- GraphRAG 雏形：实体关系抽取与邻居检索
-- 分析师节点 + Critic 合规审查 + Citation Guard
+你可以直接替换原 README 对应部分。
 
-## 快速运行
+---
 
-当前环境如果未安装 Streamlit/LangGraph，也可以先用 CLI 验证：
+# Financial Research & Multi-Hop Reasoning Agent
+
+A financial analysis and multi-hop reasoning agent built on top of a modular RAG + Agent architecture.
+
+This project is refactored from the `robot_vacuum_agent` prototype and redesigned for financial research, evidence-grounded analysis, and long-context reasoning workflows.
+
+---
+
+# Features
+
+## Multi-Source Financial Data Ingestion
+
+Supports heterogeneous financial documents:
+
+* TXT
+* Markdown
+* PDF
+* CSV
+* Image placeholders (OCR-ready)
+
+---
+
+## Advanced RAG Pipeline
+
+Includes multiple retrieval and reasoning strategies:
+
+* Structural chunking
+* Semantic chunking
+* Query Rewrite
+* HyDE generation
+* Sub-query decomposition
+* BM25 retrieval
+* Dense vector retrieval
+* Local reranking
+* Hybrid RAG orchestration
+
+---
+
+## Evidence-Grounded Financial Analysis
+
+All financial conclusions are grounded in structured `EvidenceCard` objects.
+
+Each evidence item preserves:
+
+* `source_file`
+* `page_number`
+* `chunk_id`
+
+The system refuses unsupported financial claims when evidence is insufficient.
+
+---
+
+## Agentic Workflow with LangGraph
+
+Built with a multi-node agent architecture:
+
+* Analyst node
+* Critic / compliance reviewer
+* Citation guard
+* Memory manager
+* Retrieval planner
+
+Supports:
+
+* LangGraph state-machine execution
+* Graceful local fallback when dependencies are unavailable
+
+---
+
+## Memory System
+
+Includes both:
+
+### Short-Term Memory
+
+Session-level conversational state.
+
+### Long-Term Memory
+
+Persistent user profile and preference storage.
+
+### Heartbeat Summarization
+
+Periodic compression and summarization of historical context.
+
+---
+
+## GraphRAG Prototype
+
+Early GraphRAG support:
+
+* Entity extraction
+* Relation extraction
+* Neighbor retrieval
+* Graph-enhanced reasoning
+
+---
+
+# Quick Start
+
+## CLI Mode
+
+You can run the agent directly from the command line without Streamlit or LangGraph UI dependencies:
 
 ```bash
-python app.py "示例科技2024年现金流质量如何？"
+python app.py "How was ExampleTech's cash flow quality in 2024?"
 ```
 
-安装完整依赖后启动工作台：
+---
+
+## Web Workbench
+
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
+```
+
+Launch the Streamlit interface:
+
+```bash
 streamlit run app.py
 ```
 
-## 重建索引
+---
+
+# Build the Retrieval Index
+
+Run the ingestion pipeline:
 
 ```bash
 python -m ingestion.pipeline
 ```
 
-原始金融语料放在 `data/raw/`。执行后会生成两类产物：
+This generates:
 
-- `data/processed/chunks.jsonl`：可审计的 chunk 中间产物
-- `data/indexes/chroma_db/`：真正用于向量检索的 Chroma 持久化向量库
-
-在 Windows + llm311 环境中推荐使用：
-
-```powershell
-& 'F:\anaconda3\envs\llm311\python.exe' -m ingestion.pipeline
+```text
+data/processed/chunks.jsonl
 ```
 
-也可以单独重建 Chroma：
+Auditable intermediate chunk artifacts.
 
-```powershell
-& 'F:\anaconda3\envs\llm311\python.exe' -m rag.vector_store
+and:
+
+```text
+data/indexes/chroma_db/
 ```
 
-## 关键约束
+Persistent Chroma vector database used for retrieval.
 
-金融指标和关键结论必须来自 EvidenceCard，并携带 `source_file`、`page_number`、`chunk_id`。证据不足时系统会拒绝编造。
+---
 
-## 真实金融数据集
+## Rebuild Only the Vector Store
 
-项目已加入 `data/raw/financial_reports/` 数据层，用于采集“中国互联网平台 + AI/云/SaaS 软件”上市公司资料。第一版公司池覆盖腾讯、阿里、百度、美团、网易、拼多多、快手、哔哩哔哩等公司，并用 `company_registry.csv` 和 `document_registry.csv` 管理元数据。
-
-常用命令：
-
-```powershell
-& 'F:\anaconda3\envs\llm311\python.exe' scripts\validate_financial_dataset.py
-$env:SEC_USER_AGENT='Your Name your_email@example.com'
-& 'F:\anaconda3\envs\llm311\python.exe' scripts\collect_sec_filings.py
-& 'F:\anaconda3\envs\llm311\python.exe' -m ingestion.pipeline
+```bash
+python -m rag.vector_store
 ```
 
-详细说明见 `docs/financial_dataset_v0.md`。
+---
+
+# Financial Dataset Layer
+
+The project includes a real-world financial dataset layer under:
+
+```text
+data/raw/financial_reports/
+```
+
+Current company coverage includes:
+
+* Tencent
+* Alibaba
+* Baidu
+* Meituan
+* NetEase
+* Pinduoduo
+* Kuaishou
+* Bilibili
+
+The dataset focuses on:
+
+* Chinese internet platforms
+* AI companies
+* Cloud infrastructure
+* SaaS businesses
+
+Metadata is managed through:
+
+```text
+company_registry.csv
+document_registry.csv
+```
+
+---
+
+# Dataset Utilities
+
+## Validate Dataset
+
+```bash
+python scripts/validate_financial_dataset.py
+```
+
+---
+
+## Collect SEC Filings
+
+Set your SEC user agent first:
+
+### Linux / macOS
+
+```bash
+export SEC_USER_AGENT="Your Name your_email@example.com"
+```
+
+### Windows PowerShell
+
+```powershell
+$env:SEC_USER_AGENT="Your Name your_email@example.com"
+```
+
+Then run:
+
+```bash
+python scripts/collect_sec_filings.py
+```
+
+---
+
+# Project Structure
+
+```text
+.
+├── app.py
+├── ingestion/
+├── rag/
+├── agent/
+├── memory/
+├── graph/
+├── scripts/
+├── data/
+│   ├── raw/
+│   ├── processed/
+│   └── indexes/
+├── docs/
+└── requirements.txt
+```
+
+---
+
+# Core Design Principles
+
+## Evidence First
+
+Financial metrics and conclusions must be traceable to source evidence.
+
+---
+
+## Citation Safety
+
+The system includes a citation guard to prevent unsupported hallucinated claims.
+
+---
+
+## Modular Agent Architecture
+
+Each reasoning capability is isolated into composable agent nodes.
+
+---
+
+# Future Roadmap
+
+* OCR pipeline integration
+* Full GraphRAG support
+* Financial time-series tools
+* Multi-agent debate workflows
+* Portfolio reasoning
+* Earnings-call analysis
+* SEC filing auto-sync
+* Quantitative factor extraction
+
+---
+
+# Documentation
+
+See:
+
+```text
+docs/financial_dataset_v0.md
+```
+
+for detailed dataset specifications and collection workflows.
+
+---
+
+# License
+
+MIT License
