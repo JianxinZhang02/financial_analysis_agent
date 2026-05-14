@@ -104,6 +104,7 @@ def enrich_documents_from_registry(path: str, docs: list[SourceDocument]) -> lis
                 "is_core_document": row.get("is_core_document", ""),
                 "parse_status": row.get("parse_status", ""),
                 "registry_hash": row.get("hash", ""),
+                "industry": row.get("industry", ""),
             }
         )
     return docs

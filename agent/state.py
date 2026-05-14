@@ -6,6 +6,7 @@ from typing import Any, TypedDict
 class FinancialAgentState(TypedDict, total=False):
     messages: list[dict[str, str]]
     user_id: str
+    user_profile: dict[str, Any]    # 画像回灌：watchlist/preferred_metrics/risk_preference/language_style
     user_query: str
     intent: str
     entities: dict[str, list[str]]

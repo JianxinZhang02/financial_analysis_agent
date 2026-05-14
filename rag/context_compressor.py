@@ -3,12 +3,9 @@ from __future__ import annotations
 import re
 
 from ingestion.schema import Chunk
+from knowledge import get_noise_patterns, get_metrics, resolve_metrics_from_query, get_chinese_digit_map
 from rag.bm25_store import tokenize
 from rag.citation import EvidenceCard
-
-
-NOISE_PATTERNS = ["免责声明", "重要声明", "目录", "本报告仅供"]
-CN_YEAR_DIGITS = str.maketrans({"零": "0", "〇": "0", "一": "1", "二": "2", "三": "3", "四": "4", "五": "5", "六": "6", "七": "7", "八": "8", "九": "9"})
 
 
 class ContextCompressor:
@@ -18,9 +15,12 @@ class ContextCompressor:
     def compress(self, query: str, candidates: list[dict]) -> list[EvidenceCard]:
         cards: list[EvidenceCard] = []
         query_terms = set(tokenize(query))
+        # 噪声模式从 knowledge YAML 读取
+        noise_patterns = get_noise_patterns()
+
         for candidate in candidates:
             chunk: Chunk = candidate["chunk"]
-            if any(pattern in chunk.text[:80] for pattern in NOISE_PATTERNS):
+            if any(pattern in chunk.text[:80] for pattern in noise_patterns):
                 continue
             evidence = self._select_relevant_sentences(query, query_terms, chunk.text)
             if not evidence:
@@ -72,9 +72,9 @@ class ContextCompressor:
             terms = set(tokenize(sentence))
             overlap = len(query_terms & terms)
             has_number = bool(re.search(r"\d", sentence))
-            has_financial_metric = bool(
-                re.search(r"营收|营业收入|收入|净利润|毛利率|毛利|现金流|自由现金流|净现比|应收账款|市盈率|估值|风险", sentence)
-            )
+            # 财务指标关键词从 knowledge YAML 动态读取
+            metric_keywords = _get_financial_metric_keywords()
+            has_financial_metric = bool(re.search("|".join(metric_keywords), sentence))
             score = overlap + (0.5 if has_number else 0.0) + (1.0 if has_financial_metric else 0.0)
             scored.append((sentence, score))
         scored.sort(key=lambda item: item[1], reverse=True)
@@ -106,17 +106,16 @@ class ContextCompressor:
         return ""
 
     def _metric_terms(self, query: str) -> list[str]:
+        """指标检索词从 knowledge YAML 读取，不再硬编码4条if规则。
+        resolve_metrics_from_query 自动匹配query中涉及的指标，
+        然后从 metrics YAML 的 search_terms 字段获取检索词。"""
+        all_metrics = get_metrics()
+        matched = resolve_metrics_from_query(query)
         terms: list[str] = []
-        if "收入" in query or "营收" in query:
-            terms.extend(["收入", "总收入", "营业收入"])
-        if "毛利率" in query:
-            terms.extend(["毛利率", "毛利及毛利率"])
-        elif "毛利" in query:
-            terms.append("毛利")
-        if "利润" in query or "盈利" in query or "溢利" in query:
-            terms.extend(["经营盈利", "年度盈利", "净利润", "溢利"])
-        if "现金流" in query:
-            terms.extend(["现金流量", "经营活动所得现金", "经营现金流"])
+        for metric_name in matched:
+            info = all_metrics.get(metric_name, {})
+            search_terms = info.get("search_terms", info.get("synonyms", [metric_name]))
+            terms.extend(search_terms)
         return list(dict.fromkeys(terms))
 
     def _is_metric_line(self, line: str, metric_terms: list[str]) -> bool:
@@ -165,8 +164,10 @@ class ContextCompressor:
     def _extract_years(self, line: str) -> list[str]:
         years = re.findall(r"(20\d{2})\s*年?", line)
         cn_years = re.findall(r"二[零〇][零〇一二三四五六七八九]{2}年", line)
+        cn_map = get_chinese_digit_map()
+        table = str.maketrans(cn_map)
         for item in cn_years:
-            digits = item[:-1].translate(CN_YEAR_DIGITS)
+            digits = item[:-1].translate(table)
             if re.fullmatch(r"20\d{2}", digits):
                 years.append(digits)
         return years
@@ -198,3 +199,9 @@ class ContextCompressor:
 
     def _claim_from_evidence(self, evidence: str) -> str:
         return evidence.split("。")[0].strip()[:160]
+
+
+def _get_financial_metric_keywords() -> list[str]:
+    """从 knowledge YAML 获取所有指标名+同义词，用于句子评分。"""
+    from knowledge import get_all_metric_synonyms_flat
+    return get_all_metric_synonyms_flat()

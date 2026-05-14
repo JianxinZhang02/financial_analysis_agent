@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from agent.llm_utils import compact_json, extract_json_object, invoke_llm
+from agent.llm_utils import compact_json, extract_json_object, invoke_fast_llm
 from agent.state import FinancialAgentState
 from rag.citation import has_valid_citation
 from utils.logger_handler import log_stage, safe_preview
@@ -62,7 +62,7 @@ def _llm_critique(state: FinancialAgentState) -> dict:
 EvidenceCard：
 {compact_json(state.get("evidence_cards", []))}
 """
-    raw = invoke_llm(prompt)
+    raw = invoke_fast_llm(prompt)
     data = extract_json_object(raw)
     issues = data.get("issues") or []
     if not isinstance(issues, list):

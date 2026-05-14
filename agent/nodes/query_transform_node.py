@@ -1,21 +1,29 @@
 from __future__ import annotations
 
-from agent.llm_utils import compact_json, extract_json_object, invoke_llm
+from agent.llm_utils import compact_json, extract_json_object, invoke_fast_llm
 from agent.state import FinancialAgentState
+from knowledge import get_metrics, resolve_metrics_from_query
 from utils.config_handler import rag_cof
 from utils.helpers import as_bool
 
 
 def _metric_expansion(query: str) -> list[str]:
+    """指标扩展 — 从 knowledge YAML 读取，不再硬编码4条if规则。
+    自动匹配query中涉及的指标，返回对应的扩展词列表。"""
     expansions: list[str] = []
-    if "现金流" in query:
-        expansions.extend(["经营活动现金流量净额", "自由现金流", "净现比", "应收账款周转"])
-    if "盈利" in query or "利润" in query:
-        expansions.extend(["营业收入", "归母净利润", "毛利率", "费用率"])
-    if "估值" in query or "市盈率" in query or "PE" in query.upper():
-        expansions.extend(["市盈率", "盈利预测", "市值", "估值假设"])
-    if "风险" in query:
-        expansions.extend(["风险提示", "预算波动", "成本变化", "竞争加剧"])
+    matched = resolve_metrics_from_query(query)
+    all_metrics = get_metrics()
+
+    for metric_name in matched:
+        info = all_metrics.get(metric_name, {})
+        # expansion_terms 优先（如现金流→[经营活动现金流量净额,自由现金流,...]）
+        expansion = info.get("expansion_terms", [])
+        if expansion:
+            expansions.extend(expansion)
+        else:
+            # fallback：related字段作为扩展
+            expansions.extend(info.get("related", []))
+
     return list(dict.fromkeys(expansions))
 
 
@@ -34,12 +42,35 @@ def _reflection_context(state: FinancialAgentState) -> str:
     )
 
 
-def _fallback_query_plan(query: str, entities: dict, reflection_hint: str = "") -> dict:
+def _fallback_query_plan(query: str, entities: dict, reflection_hint: str = "", profile: dict | None = None, session_summary: str = "") -> dict:
     expansions = _metric_expansion(query)
-    entity_text = " ".join(sum(entities.values(), [])) if entities else ""
+    # 画像偏好增强：把用户偏好指标的同义词加入expansion
+    if profile:
+        preferred = profile.get("preferred_metrics", [])
+        watchlist = profile.get("watchlist", [])
+        for pm in preferred:
+            pm_expansion = resolve_metrics_from_query(pm)
+            for m in pm_expansion:
+                info = get_metrics().get(m, {})
+                expansions.extend(info.get("expansion_terms", info.get("related", [])))
+        expansions = list(dict.fromkeys(expansions))
+        # watchlist中的公司加入entity_text增强
+        if watchlist:
+            for c in watchlist:
+                if c not in (entities.get("companies") or []):
+                    (entities.setdefault("companies", [])).append(c)
+
+    # entities dict 可能包含 str/int/list 混合值——统一转str再拼接
+    entity_text = " ".join(
+        " ".join(str(item) for item in v) if isinstance(v, list) else str(v)
+        for v in (entities.values() if entities else [])
+    )
     rewritten_parts = [query, entity_text, " ".join(expansions)]
     if reflection_hint:
         rewritten_parts.append(reflection_hint)
+    # L2：摘要关键词补充到改写query中
+    if session_summary:
+        rewritten_parts.append(session_summary[:200])
     rewritten = " ".join(part for part in rewritten_parts if part)
     sub_queries = [query]
     enable_sub_queries = as_bool(rag_cof.get("enable_sub_queries"), default=True)
@@ -70,7 +101,7 @@ def _fallback_query_plan(query: str, entities: dict, reflection_hint: str = "") 
     }
 
 
-def _llm_query_plan(query: str, entities: dict, reflection_hint: str = "") -> dict:  # 查询改写还要依据反思去做吗？不是直接去改写吗？然后这里的假设性文档又是什么作用
+def _llm_query_plan(query: str, entities: dict, reflection_hint: str = "", profile: dict | None = None, session_summary: str = "") -> dict:
     reflection_section = ""
     if reflection_hint:
         reflection_section = f"""
@@ -78,6 +109,28 @@ def _llm_query_plan(query: str, entities: dict, reflection_hint: str = "") -> di
         {reflection_hint}
 
         请针对审查反馈调整改写策略，重点弥补上一轮缺失的证据维度。
+        """
+
+    # ── 画像偏好注入 ──
+    profile_section = ""
+    if profile:
+        preferred_metrics = profile.get("preferred_metrics", [])
+        watchlist = profile.get("watchlist", [])
+        if watchlist or preferred_metrics:
+            profile_section = f"""
+        用户偏好画像：
+        - 关注公司：{watchlist}
+        - 常查指标：{preferred_metrics}
+        - 风险偏好：{profile.get('risk_preference', 'neutral')}
+        请优先围绕以上偏好进行改写和指标扩展。
+        """
+
+    # ── L2：会话摘要注入 ──
+    summary_section = ""
+    if session_summary:
+        summary_section = f"""
+        会话历史摘要（改写时参考上下文）：
+        {session_summary}
         """
 
     prompt = f"""
@@ -97,6 +150,8 @@ def _llm_query_plan(query: str, entities: dict, reflection_hint: str = "") -> di
     {compact_json(entities)}
 
     {reflection_section}
+    {profile_section}
+    {summary_section}
     输出 JSON schema：
     {{
     "rewritten_query": "...",
@@ -106,7 +161,7 @@ def _llm_query_plan(query: str, entities: dict, reflection_hint: str = "") -> di
     "intent_hint": "financial_analysis|calculation|graph_reasoning|realtime_financial_search"
     }}
     """
-    raw = invoke_llm(prompt)
+    raw = invoke_fast_llm(prompt)
     data = extract_json_object(raw)
     sub_queries = data.get("sub_queries") or [query]
     if not isinstance(sub_queries, list):
@@ -133,29 +188,33 @@ def _llm_query_plan(query: str, entities: dict, reflection_hint: str = "") -> di
         "intent_hint": str(data.get("intent_hint") or ""),
         "llm_used": True,
         "llm_raw": raw,
-    }   # 感觉这里好冗余啊，好像给一段假设性文档是OK 可以被接受的
+    }
 
 
-def query_transform_node(state: FinancialAgentState) -> dict:   # 查询改写和多路查询生成节点
+def query_transform_node(state: FinancialAgentState) -> dict:
     query = state.get("user_query", "")
     entities = state.get("entities", {})
+    profile = state.get("user_profile", {})     # 画像回灌
+    # ── L2：从memory_snapshot提取会话摘要 ──
+    snapshot = state.get("memory_snapshot", {})
+    session_summary = snapshot.get("summary", "")
     enable_query_rewrite = as_bool(rag_cof.get("enable_query_rewrite"), default=True)
     reflection_hint = _reflection_context(state)
     new_round = state.get("reflection_round", 0) + 1 if reflection_hint else state.get("reflection_round", 0)
 
     if not enable_query_rewrite:
-        plan = _fallback_query_plan(query, entities, reflection_hint)   # 如果不开启查询改写，直接使用fallback方案生成查询计划，且不使用LLM
+        plan = _fallback_query_plan(query, entities, reflection_hint, profile=profile, session_summary=session_summary)
         sub_queries = plan.get("sub_queries", [query])
     else:
         try:
-            plan = _llm_query_plan(query, entities, reflection_hint)
-        except Exception as exc:    # 如果LLM调用失败，回退到fallback方案，并记录错误信息
-            plan = _fallback_query_plan(query, entities, reflection_hint)
+            plan = _llm_query_plan(query, entities, reflection_hint, profile=profile, session_summary=session_summary)
+        except Exception as exc:
+            plan = _fallback_query_plan(query, entities, reflection_hint, profile=profile, session_summary=session_summary)
             plan["llm_error"] = str(exc)
         sub_queries = [query, plan.get("rewritten_query", query), *plan.get("sub_queries", [])]
 
     return {
         "query_plan": plan,
-        "sub_queries": list(dict.fromkeys([item for item in sub_queries if item])),     # 去重并过滤空查询
+        "sub_queries": list(dict.fromkeys([item for item in sub_queries if item])),
         "reflection_round": new_round,
     }

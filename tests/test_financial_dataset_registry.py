@@ -39,7 +39,7 @@ def test_document_registry_first_batch_annual_coverage():
     for row in rows:
         if row["doc_type"] == "annual_report":
             coverage[row["company_id"]].add(row["report_period"])
-        for required in ["doc_id", "company_id", "doc_type", "report_period", "source_url", "local_path"]:
+        for required in ["doc_id", "company_id", "doc_type", "report_period", "source_url", "local_path", "industry"]:
             assert row[required]
 
     for company_id in first_batch:

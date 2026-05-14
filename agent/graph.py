@@ -25,9 +25,12 @@ from utils.logger_handler import log_stage, safe_preview
 class FinancialGraphAgent:
     """Financial multi-hop analysis agent with optional LangGraph runtime."""
 
-    def __init__(self, user_id: str | None = None):
-        self.user_id = user_id or agent_cof.get("default_user_id", "default")
+    def __init__(self, user_id: str):
+        if not user_id:
+            raise ValueError("user_id不能为空——请通过登录页传入合法用户名")
+        self.user_id = user_id
         self.short_memory = ShortTermMemory(window_size=int(memory_cof.get("short_term_window", 8)))
+        self.short_memory.restore(user_id)  # L1：从存储层恢复summary+slots
         self.heartbeat = MemoryHeartbeat()
         self.profiles = UserProfileService()
         self.compiled_graph = self._try_build_langgraph()
@@ -141,9 +144,11 @@ class FinancialGraphAgent:
             return None
 
     def _initial_state(self, query: str) -> FinancialAgentState:
+        profile = self.profiles.get(self.user_id)
         return {
             "messages": list(self.short_memory.messages) + [{"role": "user", "content": query}],
             "user_id": self.user_id,
+            "user_profile": profile,      # 画像回灌：供下游节点参考
             "user_query": query,
             "reflection_round": 0,
             "reflection_history": [],
@@ -171,6 +176,21 @@ class FinancialGraphAgent:
                 entities.get("companies", []),
                 entities.get("metrics", []),
             )
+            # ── 画像风格沉淀：简单规则推断，后续可改LLM ──
+            draft_len = len(state.get("draft_answer", ""))
+            if draft_len > 500:
+                inferred_style = "professional"
+            elif draft_len > 0:
+                inferred_style = "casual"
+            else:
+                inferred_style = "professional"
+            self.profiles.remember_style(
+                self.user_id,
+                language_style=inferred_style,
+                risk_preference="neutral",
+            )
+            # ── L1：短期记忆持久化（关浏览器不丢失summary+slots）──
+            self.short_memory.persist(self.user_id)
             stage.add_done_fields(
                 final_answer_chars=len(final_answer),
                 evidence_cards=len(state.get("evidence_cards", [])),
@@ -233,12 +253,50 @@ class FinancialGraphAgent:
         state.update(final_answer_node(state))
         return state
 
-    def execute_stream(self, query: str) -> Iterator[str]:
-        state = self.invoke(query)
-        yield state.get("final_answer", "")
+    def invoke_stream(self, query: str) -> tuple[FinancialAgentState, str]:
+        """流式模式：管线前置步骤同步完成，reasoning只构建prompt不调LLM。
+        返回 (state, reasoning_prompt)，由调用方负责stream LLM渲染。
+        如果evidence_cards为空，reasoning_prompt为空字符串，直接用fallback draft_answer。"""
+        state = self._initial_state(query)
+        state["skip_llm_reasoning"] = True  # 告诉reasoning_node跳过LLM
+        if self.compiled_graph is not None:
+            state = self.compiled_graph.invoke(state)
+        else:
+            state = self._invoke_fallback(state)
+
+        reasoning_prompt = state.get("reasoning_prompt", "")
+        # 如果无证据→reasoning_node走fallback，draft_answer已有内容，无需流式
+        if not reasoning_prompt and state.get("draft_answer"):
+            # fallback路径已有完整答案，直接包装为final_answer
+            state["final_answer"] = state["draft_answer"]
+            return state, ""  # 空 prompt = 不需要流式
+
+        # 后处理（记忆、画像）在_stream_finalize中完成
+        return state, reasoning_prompt
+
+    def _stream_finalize(self, state: FinancialAgentState, answer: str) -> None:
+        """流式完成后：更新记忆、画像、日志——与invoke()的后处理逻辑一致。"""
+        state["final_answer"] = answer
+        state["draft_answer"] = answer
+        self.short_memory.append("assistant", answer)
+        if self.heartbeat.should_compact(list(self.short_memory.messages)):
+            self.short_memory.summary = self.heartbeat.summarize(
+                list(self.short_memory.messages), self.short_memory.summary
+            )
+        entities = state.get("entities", {})
+        self.profiles.remember_focus(
+            self.user_id,
+            entities.get("companies", []),
+            entities.get("metrics", []),
+        )
+        draft_len = len(answer)
+        inferred_style = "professional" if draft_len > 500 else ("casual" if draft_len > 0 else "professional")
+        self.profiles.remember_style(self.user_id, language_style=inferred_style, risk_preference="neutral")
+        # ── L1：短期记忆持久化 ──
+        self.short_memory.persist(self.user_id)
 
 
 if __name__ == "__main__":
-    agent = FinancialGraphAgent()
+    agent = FinancialGraphAgent(user_id="test_user")
     result = agent.invoke("示例科技2024年现金流质量如何？")
     print(result["final_answer"])

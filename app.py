@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from agent.graph import FinancialGraphAgent
+from memory import ConversationStore, sanitize_user_id
 import warnings
 import transformers
 import warnings
@@ -31,8 +32,13 @@ RECOMMENDED_QUERIES = [
 
 
 def run_cli() -> None:
-    agent = FinancialGraphAgent()
-    query = " ".join(sys.argv[1:]).strip() or "示例科技2024年现金流质量如何？"
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--user", default="cli_user", help="用户ID（默认cli_user）")
+    parser.add_argument("query", nargs="*", help="查询文本")
+    args = parser.parse_args()
+    query = " ".join(args.query).strip() or "示例科技2024年现金流质量如何？"
+    agent = FinancialGraphAgent(user_id=args.user)
     result = agent.invoke(query)
     print(result["final_answer"])
 
@@ -54,6 +60,68 @@ def _make_thread(thread_id: str) -> dict[str, Any]:
         "last_state": {},
         "updated_at": "",
     }
+
+
+def render_login_page() -> str | None:
+    """登录/选择用户页面。返回选定的user_id或None。"""
+    import streamlit as st
+
+    conv_store = st.session_state.get("conversation_store")
+    existing_users = conv_store.list_users() if conv_store else []
+
+    st.markdown("""
+        <div class="hero-wrap" style="margin-top:6vh;text-align:center;">
+            <div class="hero-kicker">欢迎回来</div>
+            <h1 class="hero-title">金融研报分析助手</h1>
+            <div class="hero-body">选择或输入用户名以加载您的对话历史与偏好画像。</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    _, center, _ = st.columns([0.2, 0.6, 0.2])
+    with center:
+        st.markdown('<div class="panel-shell">', unsafe_allow_html=True)
+        user_id = st.text_input("输入新用户名", placeholder="如 analyst_zhang", key="login-input")
+        if existing_users:
+            selected = st.selectbox("或选择已有用户", existing_users, key="login-select")
+            if selected and not user_id:
+                user_id = selected
+
+        if st.button("进入工作台", use_container_width=True, key="login-btn"):
+            if user_id and user_id.strip():
+                try:
+                    return sanitize_user_id(user_id.strip())
+                except ValueError as e:
+                    st.error(str(e))
+        st.markdown('</div>', unsafe_allow_html=True)
+    return None
+
+
+def _load_user_conversations(user_id: str) -> None:
+    """从持久化存储加载该用户的对话历史到session_state。"""
+    import streamlit as st
+
+    conv_store = st.session_state["conversation_store"]
+    threads = conv_store.get_threads(user_id)
+    if threads:
+        st.session_state["threads"] = {t["id"]: t for t in threads}
+        st.session_state["thread_order"] = [t["id"] for t in threads]
+        st.session_state["active_thread_id"] = threads[0]["id"] if threads else "thread-1"
+        # ── 关键：thread_counter必须跳过已有ID，避免撞key ──
+        existing_nums = []
+        for t in threads:
+            tid = t["id"]
+            if tid.startswith("thread-"):
+                try:
+                    existing_nums.append(int(tid.split("-", 1)[1]))
+                except ValueError:
+                    pass
+        max_num = max(existing_nums) if existing_nums else 0
+        st.session_state["thread_counter"] = max_num + 1
+    else:
+        thread_id = f"thread-{st.session_state.get('thread_counter', 1)}"
+        st.session_state["threads"] = {thread_id: _make_thread(thread_id)}
+        st.session_state["thread_order"] = [thread_id]
+        st.session_state["active_thread_id"] = thread_id
 
 
 def inject_chat_css() -> None:
@@ -392,10 +460,19 @@ def inject_chat_css() -> None:
 def init_session_state() -> None:
     import streamlit as st
 
+    if "user_id" not in st.session_state:
+        st.session_state["user_id"] = None      # 登录前为None
     if "agent" not in st.session_state:
-        st.session_state["agent"] = FinancialGraphAgent()
+        pass                                     # 登录后才创建
+    if "conversation_store" not in st.session_state:
+        st.session_state["conversation_store"] = ConversationStore()
     if "thread_counter" not in st.session_state:
         st.session_state["thread_counter"] = 1
+    # ── 已登录但threads不存在 → 从持久化存储加载 ──
+    if "threads" not in st.session_state and st.session_state.get("user_id"):
+        _load_user_conversations(st.session_state["user_id"])
+        return
+    # ── 未登录且threads不存在 → 创建初始空线程 ──
     if "threads" not in st.session_state:
         thread_id = f"thread-{st.session_state['thread_counter']}"
         st.session_state["threads"] = {thread_id: _make_thread(thread_id)}
@@ -422,7 +499,22 @@ def _create_thread(set_active: bool = True) -> str:
     return thread_id
 
 
+def _persist_threads() -> None:
+    """将当前所有对话线程持久化到磁盘/Redis。"""
+    import streamlit as st
+
+    conv_store = st.session_state["conversation_store"]
+    conv_store.save_threads(
+        st.session_state["user_id"],
+        list(st.session_state["threads"].values()),
+    )
+
+
 def _start_new_chat() -> None:
+    import streamlit as st
+
+    # 先持久化当前对话，防止rerun丢失
+    _persist_threads()
     thread = _active_thread()
     if thread["messages"]:
         _create_thread(set_active=True)
@@ -433,6 +525,7 @@ def _start_new_chat() -> None:
 def _switch_thread(thread_id: str) -> None:
     import streamlit as st
 
+    _persist_threads()
     if thread_id in st.session_state["threads"]:
         st.session_state["active_thread_id"] = thread_id
 
@@ -463,7 +556,7 @@ def render_sidebar() -> tuple[str, str | None]:
         visible_threads = [
             threads[thread_id]
             for thread_id in st.session_state["thread_order"]
-            if threads[thread_id]["messages"]
+            if threads[thread_id]["messages"] or thread_id == active_id
         ]
         if not visible_threads:
             st.markdown('<div class="sidebar-empty">暂无会话记录。</div>', unsafe_allow_html=True)
@@ -490,6 +583,10 @@ def render_sidebar() -> tuple[str, str | None]:
             """,
             unsafe_allow_html=True,
         )
+        user_id = st.session_state.get("user_id", "")
+        st.markdown(f'<div class="recent-meta">当前用户：{user_id}</div>', unsafe_allow_html=True)
+        if st.button("切换用户", key="switch-user"):
+            return ("logout", None)
     return ("stay", None)
 
 
@@ -614,20 +711,30 @@ def render_evidence_panel(state: dict[str, Any]) -> None:
 def handle_query(query: str) -> None:
     import streamlit as st
 
+    from agent.llm_utils import invoke_llm_stream
+
     clean_query = query.strip()
     if not clean_query:
         return
 
     thread = _active_thread()
+
+    # ── 立即渲染用户消息（问完即见，不等答案） ──
+    with st.chat_message("user"):
+        st.markdown(clean_query)
+
     thread["messages"].append({"role": "user", "content": clean_query})
     if thread["title"] == "新对话":
         thread["title"] = _thread_title(clean_query)
     thread["updated_at"] = _now_label()
 
-    with st.spinner("正在检索财报、重排证据并运行审查..."):
+    # ── 进入 assistant 上下文，先显示思考占位 ──
+    with st.chat_message("assistant"):
+        thinking_placeholder = st.empty()
+        thinking_placeholder.markdown("⏳ 正在检索财报、重排证据并运行审查...")
+
         try:
-            state = st.session_state["agent"].invoke(clean_query)
-            answer = state.get("final_answer", "")
+            state, reasoning_prompt = st.session_state["agent"].invoke_stream(clean_query)
         except Exception as exc:
             state = {
                 "error": str(exc),
@@ -638,10 +745,33 @@ def handle_query(query: str) -> None:
                     "issues": [str(exc)],
                 },
             }
-            answer = f"在工作台完成回答前，当前运行失败：{exc}"
+            reasoning_prompt = ""
+
+        answer = state.get("final_answer", "")
+
+        if reasoning_prompt:
+            # ── 有prompt → 清除思考占位，流式输出 ──
+            thinking_placeholder.empty()
+            answer = st.write_stream(invoke_llm_stream(reasoning_prompt))
+            st.session_state["agent"]._stream_finalize(state, answer)
+        elif answer:
+            # ── fallback路径：answer已有完整内容，替换占位 ──
+            thinking_placeholder.markdown(answer)
+            st.session_state["agent"]._stream_finalize(state, answer)
+        elif state.get("error"):
+            # ── 异常路径 ──
+            answer = "运行失败：" + str(state["error"])
+            thinking_placeholder.markdown(answer)
+        else:
+            # ── 兜底 ──
+            answer = "系统处理异常，未能生成回答。"
+            thinking_placeholder.markdown(answer)
 
     thread["messages"].append({"role": "assistant", "content": answer})
     thread["last_state"] = state
+
+    # ── 持久化到磁盘/Redis ──
+    _persist_threads()
     thread["updated_at"] = _now_label()
 
 
@@ -656,7 +786,25 @@ def run_streamlit() -> None:
     inject_chat_css()
     init_session_state()
 
+    # ── 未登录 → 显示登录页 ──
+    if not st.session_state.get("user_id"):
+        user_id = render_login_page()
+        if user_id:
+            st.session_state["user_id"] = user_id
+            st.session_state["agent"] = FinancialGraphAgent(user_id=user_id)
+            _load_user_conversations(user_id)
+            st.rerun()
+        return
+
+    # ── 已登录 → 主界面 ──
     sidebar_action, thread_id = render_sidebar()
+
+    # 切换用户 → 回到登录页
+    if sidebar_action == "logout":
+        st.session_state["user_id"] = None
+        st.session_state.pop("agent", None)
+        st.rerun()
+
     if sidebar_action == "new":
         _start_new_chat()
         st.rerun()
@@ -700,12 +848,21 @@ def run_streamlit() -> None:
 
 
 if __name__ == "__main__":
+    # 判断是否在Streamlit运行环境中
+    _is_streamlit = False
     try:
         import streamlit.runtime.scriptrunner as _st_runner
-
         if _st_runner.get_script_run_ctx():
-            run_streamlit()
-        else:
-            run_cli()
+            _is_streamlit = True
     except Exception:
+        pass
+
+    # 检查sys.argv是否有streamlit特征（防止scriptrunner异常误判）
+    import sys
+    if not _is_streamlit and any("streamlit" in arg for arg in sys.argv):
+        _is_streamlit = True
+
+    if _is_streamlit:
+        run_streamlit()
+    else:
         run_cli()
