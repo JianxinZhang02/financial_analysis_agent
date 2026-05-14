@@ -487,27 +487,39 @@ def _active_thread() -> dict[str, Any]:
     return st.session_state["threads"][st.session_state["active_thread_id"]]
 
 
+def _promote_thread(thread_id: str) -> None:
+    """将指定线程提到 thread_order 最前面（最近活跃排序）。"""
+    import streamlit as st
+
+    order = st.session_state["thread_order"]
+    if thread_id in order:
+        order.remove(thread_id)
+    order.insert(0, thread_id)
+
+
 def _create_thread(set_active: bool = True) -> str:
     import streamlit as st
 
     thread_id = f"thread-{st.session_state['thread_counter']}"
     st.session_state["thread_counter"] += 1
     st.session_state["threads"][thread_id] = _make_thread(thread_id)
-    st.session_state["thread_order"].insert(0, thread_id)
+    _promote_thread(thread_id)
     if set_active:
         st.session_state["active_thread_id"] = thread_id
     return thread_id
 
 
 def _persist_threads() -> None:
-    """将当前所有对话线程持久化到磁盘/Redis。"""
+    """将当前所有对话线程持久化到磁盘/Redis。按 thread_order 顺序写入，保证下次加载排序一致。"""
     import streamlit as st
 
     conv_store = st.session_state["conversation_store"]
-    conv_store.save_threads(
-        st.session_state["user_id"],
-        list(st.session_state["threads"].values()),
-    )
+    ordered = [
+        st.session_state["threads"][tid]
+        for tid in st.session_state["thread_order"]
+        if tid in st.session_state["threads"]
+    ]
+    conv_store.save_threads(st.session_state["user_id"], ordered)
 
 
 def _start_new_chat() -> None:
@@ -528,6 +540,7 @@ def _switch_thread(thread_id: str) -> None:
     _persist_threads()
     if thread_id in st.session_state["threads"]:
         st.session_state["active_thread_id"] = thread_id
+        _promote_thread(thread_id)
 
 
 def render_sidebar() -> tuple[str, str | None]:
@@ -770,7 +783,8 @@ def handle_query(query: str) -> None:
     thread["messages"].append({"role": "assistant", "content": answer})
     thread["last_state"] = state
 
-    # ── 持久化到磁盘/Redis ──
+    # ── 活跃提权 + 持久化 ──
+    _promote_thread(st.session_state["active_thread_id"])
     _persist_threads()
     thread["updated_at"] = _now_label()
 

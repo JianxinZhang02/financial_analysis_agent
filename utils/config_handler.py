@@ -119,6 +119,18 @@ def load_compliance_config(config_path: str = get_abs_path("config/compliance.ya
     return _load_yaml(config_path, default, encoding)
 
 
+def load_mcp_config(config_path: str = get_abs_path("config/mcp.yaml"), encoding: str = "utf-8") -> dict:
+    default = {
+        "servers": {},
+        "web_search": {
+            "mode": "placeholder",
+            "max_results": 5,
+            "inject_to_evidence": True,
+        },
+    }
+    return _load_yaml(config_path, default, encoding)
+
+
 rag_cof = load_rag_config()
 chroma_cof = load_chroma_config()
 prompts_cof = load_prompts_config()
@@ -127,6 +139,7 @@ model_cof = load_model_config()
 memory_cof = load_memory_config()
 graph_cof = load_graph_config()
 compliance_cof = load_compliance_config()
+mcp_cof = load_mcp_config()
 
 
 if __name__ == "__main__":
